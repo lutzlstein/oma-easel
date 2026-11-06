@@ -1,6 +1,12 @@
 <RCC>
     <qresource prefix="/">
         <file alias="Main.qml">Main.qml</file>
+        <file alias="ui/OButton.qml">ui/OButton.qml</file>
+        <file alias="ui/OField.qml">ui/OField.qml</file>
+        <file alias="ui/ODropdown.qml">ui/ODropdown.qml</file>
+        <file alias="ui/OStepper.qml">ui/OStepper.qml</file>
+        <file alias="ui/OText.qml">ui/OText.qml</file>
+        <file alias="ui/Thumbnail.qml">ui/Thumbnail.qml</file>
         <file alias="i18n/en.json">i18n/en.json</file>
     </qresource>
 </RCC>

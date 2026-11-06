@@ -35,7 +35,9 @@ int main(int argc, char *argv[]) {
     // and the launcher pick up the installed icon.
     app.setDesktopFileName("easel");
     app.setWindowIcon(QIcon::fromTheme("easel"));
-    QQuickStyle::setStyle("Material");
+    // Basic is the plainest base; every control easel shows is restyled from
+    // the shell's tokens in src/ui/.
+    QQuickStyle::setStyle("Basic");
 
     // Installed before anything is translated, and every qsTr() binding is
     // re-evaluated when the Omarchy language changes.

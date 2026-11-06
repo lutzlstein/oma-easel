@@ -77,7 +77,7 @@ void Studio::setScene(const QString &scene) {
 }
 
 void Studio::setCount(int count) {
-    count = std::clamp(count, 3, 6);
+    count = std::clamp(count, 1, 6);
     if (count == m_count)
         return;
     m_count = count;

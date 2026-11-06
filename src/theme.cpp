@@ -8,6 +8,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <QHash>
 #include <QStandardPaths>
 #include <cmath>
 
@@ -40,6 +41,14 @@ Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl)
             emit changed();
         }
     });
+    // Omarchy sets the system font through fontconfig; omarchy-font-current
+    // reads it the same way.
+    if (directory.isEmpty()) {
+        QProcess fc;
+        fc.start("fc-match", {"monospace", "-f", "%{family}"});
+        if (fc.waitForFinished(2000))
+            m_fontFamily = QString::fromUtf8(fc.readAllStandardOutput()).section(',', 0, 0).trimmed();
+    }
     m_roundingPoll.setInterval(1000);
     connect(&m_roundingPoll, &QTimer::timeout, this, &Theme::refreshRounding);
     if (!m_hyprctl.isEmpty())
@@ -81,6 +90,88 @@ QString Theme::accentForeground() const {
     return luminance > .179 ? "black" : "white";
 }
 
+// "#rrggbb", Hyprland's "rgba(rrggbbaa)" or "rgb(rrggbb)", or a gradient of
+// those ("rgba(..) rgba(..) 45deg"), whose first stop stands in for it.
+QString Theme::parseColor(const QString &value) {
+    static const QRegularExpression hex(R"(#([0-9a-fA-F]{6}))");
+    static const QRegularExpression hypr(R"(rgba?\(([0-9a-fA-F]{6})(?:[0-9a-fA-F]{2})?\))");
+    const auto plain = hex.match(value);
+    const auto wrapped = hypr.match(value);
+    if (wrapped.hasMatch() && (!plain.hasMatch() || wrapped.capturedStart() < plain.capturedStart()))
+        return "#" + wrapped.captured(1).toLower();
+    return plain.hasMatch() ? "#" + plain.captured(1).toLower() : QString();
+}
+
+QVariantMap Theme::readStyle(const QString &themeDirectory, const QString &fontFamily) {
+    // Flatten shell.toml to "section.key" -> raw value.
+    QHash<QString, QString> toml;
+    QFile shell(themeDirectory + "/shell.toml");
+    if (shell.open(QIODevice::ReadOnly)) {
+        QString section;
+        static const QRegularExpression header(R"(^\s*\[([^\]]+)\]\s*$)");
+        static const QRegularExpression entry(R"re(^\s*([A-Za-z0-9_-]+)\s*=\s*("([^"]*)"|[^#\s]+))re");
+        for (const QString &line : QString::fromUtf8(shell.readAll()).split('\n')) {
+            if (const auto match = header.match(line); match.hasMatch())
+                section = match.captured(1).trimmed();
+            else if (const auto match = entry.match(line); match.hasMatch())
+                toml.insert(section + "." + match.captured(1),
+                            match.captured(3).isNull() ? match.captured(2) : match.captured(3));
+        }
+    }
+
+    // Without shell.toml, colors.toml supplies the same base colors.
+    QHash<QString, QString> colors;
+    QFile colorFile(themeDirectory + "/colors.toml");
+    if (colorFile.open(QIODevice::ReadOnly)) {
+        static const QRegularExpression line(R"re(^\s*([a-z_]+)\s*=\s*["'](#[0-9a-fA-F]{6})["'])re",
+                                             QRegularExpression::MultilineOption);
+        auto it = line.globalMatch(QString::fromUtf8(colorFile.readAll()));
+        while (it.hasNext()) {
+            const auto match = it.next();
+            colors.insert(match.captured(1), match.captured(2).toLower());
+        }
+    }
+    const QString background = colors.value("background", "#121212");
+    const QString foreground = colors.value("foreground", "#dddddd");
+
+    auto color = [&](const QString &key, const QString &fallback) {
+        QString value = toml.value(key);
+        if (value.startsWith("hyprland."))
+            value = toml.value(value);
+        const QString parsed = parseColor(value);
+        return parsed.isEmpty() ? fallback : parsed;
+    };
+    auto number = [&](const QString &key, double fallback) {
+        bool ok = false;
+        const double value = toml.value(key).toDouble(&ok);
+        return ok ? value : fallback;
+    };
+
+    const QString text = color("menu.text", foreground);
+    return {
+        {"background", color("menu.background", background)},
+        {"text", text},
+        {"muted", colors.value("muted", colors.value("dark_foreground", text))},
+        {"accent", colors.value("accent", "#ffd60a")},
+        {"border", color("hyprland.active-border", text)},
+        {"popupBackground", color("popups.background", background)},
+        {"controlColor", color("controls.normal-color", text)},
+        {"normalFill", number("controls.normal-fill-alpha", 0.04)},
+        {"normalBorderAlpha", number("controls.normal-border-alpha", 0.4)},
+        {"borderWidth", number("controls.normal-border-width", 1)},
+        {"hoverFill", number("controls.hover-cursor-fill-alpha", 0.08)},
+        {"hoverBorderAlpha", number("controls.hover-cursor-border-alpha", 0.25)},
+        {"focusFill", number("controls.focus-fill-alpha", 0.08)},
+        {"focusBorderAlpha", number("controls.focus-border-alpha", 0.25)},
+        {"selectedFill", number("controls.selected-fill-alpha", 0.18)},
+        {"pressedFill", number("controls.pressed-fill-alpha", 0.22)},
+        {"selectionFill", number("controls.selection-fill-alpha", 0.35)},
+        {"fontSize", number("font.base-size", 12)},
+        {"spacing", number("spacing.scale", 1.0)},
+        {"fontFamily", fontFamily.isEmpty() ? QString("monospace") : fontFamily},
+    };
+}
+
 void Theme::reload() {
     refreshRounding();
     const auto paths = m_watcher.files() + m_watcher.directories();
@@ -101,8 +192,10 @@ void Theme::reload() {
             m_watcher.addPath(path);
 
     const auto accent = readAccent(m_directory + "/theme/colors.toml");
-    if (accent != m_accent) {
+    const auto style = readStyle(m_directory + "/theme", m_fontFamily);
+    if (accent != m_accent || style != m_style) {
         m_accent = accent;
+        m_style = style;
         emit changed();
     }
 }
