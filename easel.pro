@@ -18,8 +18,7 @@ HEADERS += \
     src/studio.h \
     src/theme.h \
     src/translator.h \
-    src/cli.h \
-    src/logoprovider.h
+    src/cli.h
 
 SOURCES += \
     src/main.cpp \

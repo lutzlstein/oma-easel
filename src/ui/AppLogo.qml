@@ -1,10 +1,10 @@
 import QtQuick
 
-// The app's mark, with its outline in the theme's text color so it reads on
-// every Omarchy theme (see LogoProvider).
+// The app's mark: an easel on an 80s terminal. It carries its own contrast,
+// so it shows in full color on every theme.
 Image {
-    source: "image://logo/" + theme.style.text
-    sourceSize: Qt.size(width * 2, height * 2)
+    source: "qrc:/assets/logo.png"
+    sourceSize.height: height * 2
     smooth: true
     mipmap: true
     fillMode: Image.PreserveAspectFit

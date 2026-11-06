@@ -8,8 +8,7 @@
         <file alias="ui/OText.qml">ui/OText.qml</file>
         <file alias="ui/Thumbnail.qml">ui/Thumbnail.qml</file>
         <file alias="ui/AppLogo.qml">ui/AppLogo.qml</file>
-        <file alias="assets/logo-outline.png">assets/logo-outline.png</file>
-        <file alias="assets/logo-color.png">assets/logo-color.png</file>
+        <file alias="assets/logo.png">assets/logo.png</file>
         <file alias="i18n/en.json">i18n/en.json</file>
     </qresource>
 </RCC>

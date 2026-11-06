@@ -10,7 +10,6 @@
 #include <QUrl>
 
 #include "cli.h"
-#include "logoprovider.h"
 #include "paths.h"
 #include "studio.h"
 #include "theme.h"
@@ -57,7 +56,6 @@ int main(int argc, char *argv[]) {
         studio.loadTheme(arguments.at(2));
 
     QQmlApplicationEngine engine;
-    engine.addImageProvider("logo", new LogoProvider);
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
     engine.rootContext()->setContextProperty("translator", &translator);
     engine.rootContext()->setContextProperty("theme", &theme);
