@@ -6,6 +6,14 @@ New backgrounds go into `~/.config/omarchy/backgrounds/<theme>/`, where Omarchy 
 
 > Early days.
 
+## Example
+
+Omarchy's built-in [Kanagawa theme](https://github.com/omacom/omarchy/tree/quattro/themes/kanagawa) ships Hokusai's Great Wave as [its background](https://github.com/omacom/omarchy/blob/quattro/themes/kanagawa/backgrounds/1-kanagawa.jpg). With that as the only style reference and the scene *"a quiet mountain lake at dusk with a lone wooden boat and pine trees"*, Oma Easel (through Codex) made a new background in the same woodblock-print style and the theme's colors, sized for a 3440x1440 ultrawide:
+
+![A woodblock-print mountain lake at dusk with a wooden boat and pine trees, made for the Kanagawa theme](docs/example-kanagawa.webp)
+
+Kept, it lands in `~/.config/omarchy/backgrounds/kanagawa/` and joins Kanagawa's background cycle; the theme itself is untouched.
+
 ## How it works
 
 1. Load a theme: its `colors.toml` and every background it has.
