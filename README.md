@@ -10,7 +10,7 @@ New backgrounds go into `~/.config/omarchy/backgrounds/<theme>/`, where Omarchy 
 
 1. Load a theme: its `colors.toml` and every background it has.
 2. Pick existing backgrounds as style references and describe a scene.
-3. easel builds the full prompt (references, theme palette, your screens' shape) and generates 1–6 candidates in parallel.
+3. Oma Easel builds the full prompt (references, theme palette, your screens' shape) and generates 1–6 candidates in parallel.
 4. Keep the ones you like. A kept candidate becomes a lossless master in `~/.local/share/oma-easel/<theme>/` with a JSON sidecar describing how it was made, and a WebP export (Lanczos-scaled, quality 85) in the theme's user backgrounds.
 
 Candidates wait in `~/.cache/oma-easel/<theme>/<batch>/` until kept.
@@ -63,7 +63,7 @@ oma-easel import <file>… [--theme …] [--prompt "…"] [--source "…"]
                                      Add images made elsewhere as candidates
 oma-easel keep <candidate> [--name "…"]
 oma-easel remove <background> [--theme …]
-                                     Move a background easel added to the trash
+                                     Move a background Oma Easel added to the trash
 ```
 
 Every command takes `--json` and exits 0 on success or 1 with the reason on stderr. `--ref` accepts a file path, a background file name, or its number in `oma-easel theme`.
