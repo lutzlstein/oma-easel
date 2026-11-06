@@ -383,12 +383,14 @@ int keep(const QStringList &arguments, const Paths &paths) {
 }
 }
 
+// No arguments, or "open", means the window; everything else is a command.
 bool Cli::handles(const QStringList &arguments) {
-    return arguments.size() < 2 || commands.contains(arguments.at(1)) || arguments.at(1).startsWith('-');
+    return arguments.size() >= 2 && arguments.at(1) != "open";
 }
 
 QString Cli::usage() {
-    return "Usage: easel <command> [options]\n\n"
+    return "Usage: easel [open [theme]] | easel <command> [options]\n\n"
+           "  open [theme]           Open the window (the default)\n"
            "  themes                 List installed Omarchy themes\n"
            "  theme [theme]          Show a theme's colors and backgrounds\n"
            "  screens                Show monitors and the export size\n"

@@ -1,10 +1,17 @@
 // easel: generates new background images for an installed Omarchy theme.
 
 #include <QGuiApplication>
-#include <QTextStream>
+#include <QIcon>
+#include <QQmlApplicationEngine>
+#include <QQmlContext>
+#include <QQuickStyle>
+#include <QUrl>
 
 #include "cli.h"
 #include "paths.h"
+#include "studio.h"
+#include "theme.h"
+#include "translator.h"
 
 int main(int argc, char *argv[]) {
     QStringList arguments;
@@ -12,20 +19,43 @@ int main(int argc, char *argv[]) {
         arguments << QString::fromLocal8Bit(argv[i]);
 
     // Commands draw nothing, so they run without a display; QGuiApplication
-    // is still needed because candidates are decoded with QImage.
-    const bool command = Cli::handles(arguments) || arguments.value(1) != "open";
+    // is still needed because images are decoded with QImage.
+    const bool command = Cli::handles(arguments);
     if (command)
         qputenv("QT_QPA_PLATFORM", "offscreen");
 
     QGuiApplication app(argc, argv);
     app.setApplicationName("easel");
     app.setApplicationVersion("0.1.0");
-    app.setDesktopFileName("easel");
 
     if (command)
         return Cli::run(arguments, Paths::defaults());
 
-    // The window arrives in phase 2.
-    QTextStream(stderr) << "easel: the window isn't built yet. Use the commands; see `easel help`." << Qt::endl;
-    return 1;
+    // Matches the window to easel.desktop, so the compositor (Wayland app_id)
+    // and the launcher pick up the installed icon.
+    app.setDesktopFileName("easel");
+    app.setWindowIcon(QIcon::fromTheme("easel"));
+    QQuickStyle::setStyle("Material");
+
+    // Installed before anything is translated, and every qsTr() binding is
+    // re-evaluated when the Omarchy language changes.
+    Translator translator;
+    app.installTranslator(&translator);
+
+    Theme theme;
+    Studio studio(Paths::defaults());
+    // "easel open nord" starts on that theme instead of the current one.
+    if (arguments.size() >= 3)
+        studio.loadTheme(arguments.at(2));
+
+    QQmlApplicationEngine engine;
+    QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
+    engine.rootContext()->setContextProperty("translator", &translator);
+    engine.rootContext()->setContextProperty("theme", &theme);
+    engine.rootContext()->setContextProperty("studio", &studio);
+    engine.load(QUrl("qrc:/Main.qml"));
+    if (engine.rootObjects().isEmpty())
+        return 1;
+
+    return app.exec();
 }

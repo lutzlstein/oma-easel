@@ -10,6 +10,7 @@
 #include "library.h"
 #include "promptbuilder.h"
 #include "screens.h"
+#include "studio.h"
 #include "themelibrary.h"
 
 class EaselTests : public QObject {
@@ -179,6 +180,89 @@ private slots:
         QCOMPARE(Library::importInto(batch, {dir.filePath("download.jpg")}, &error).first(), Library::candidatePath(batch, 1));
         QVERIFY(Library::importInto(batch, {dir.filePath("notes.txt")}, &error).isEmpty());
         QVERIFY(error.contains("notes.txt"));
+    }
+
+    void studioManualFlow()
+    {
+        if (QStandardPaths::findExecutable("magick").isEmpty())
+            QSKIP("ImageMagick is not installed.");
+        QTemporaryDir dir;
+        const Paths paths = Paths::underRoot(dir.path());
+        write(paths.stockThemes + "/nord/colors.toml", "background = \"#2e3440\"\naccent = \"#81a1c1\"\n");
+        write(paths.stockThemes + "/nord/backgrounds/1-fjord.png", "x");
+        write(paths.currentThemeName, "nord\n");
+        Studio::Options options;
+        options.detectBackends = false;  // manual, without asking Codex
+        options.target = Target{120, 50, {}};
+        Studio studio(paths, options);
+        QCOMPARE(studio.themeSlug(), QString("nord"));
+        QVERIFY(studio.manual());
+
+        // An empty scene is refused; a real one yields the prompt and steps.
+        studio.generate();
+        QVERIFY(studio.manualPrompt().isEmpty());
+        studio.setScene("Frozen fjord");
+        studio.toggleReference(paths.stockThemes + "/nord/backgrounds/1-fjord.png");
+        studio.generate();
+        QVERIFY(studio.manualPrompt().contains("Scene: Frozen fjord"));
+        QVERIFY(studio.manualPrompt().contains("The attached image is a style reference"));
+        QVERIFY(studio.manualSteps().contains("Attach the 1 reference"));
+
+        // Import, keep, then the kept image shows among the theme's backgrounds.
+        QImage image(240, 100, QImage::Format_RGB32);
+        image.fill(Qt::darkCyan);
+        QVERIFY(image.save(dir.filePath("made-elsewhere.png")));
+        QVERIFY(image.save(dir.filePath("second.png")));
+        studio.importFiles({dir.filePath("made-elsewhere.png"), dir.filePath("second.png")});
+        QCOMPARE(studio.candidates().size(), 2);
+        QCOMPARE(studio.unkept(), 2);
+        studio.keep(0);
+        QCOMPARE(studio.candidates().at(0).toMap().value("state").toString(), QString("kept"));
+        QCOMPARE(studio.unkept(), 1);
+        QCOMPARE(studio.backgrounds().size(), 2);
+        QVERIFY(QFileInfo::exists(paths.userBackgrounds + "/nord/2-frozen-fjord.webp"));
+
+        // Discard drops the candidate; vary makes the kept one the only reference.
+        studio.discard(1);
+        QCOMPARE(studio.candidates().size(), 1);
+        studio.vary(0);
+        QCOMPARE(studio.references().size(), 1);
+        QVERIFY(studio.references().first().contains("/vary-"));
+    }
+
+    void studioPreviewRestoresBackground()
+    {
+        QTemporaryDir dir;
+        const Paths paths = Paths::underRoot(dir.path());
+        write(paths.stockThemes + "/nord/colors.toml", "accent = \"#81a1c1\"\n");
+        write(paths.currentThemeName, "nord\n");
+        write(dir.filePath("previous.png"), "x");
+        QVERIFY(QFile::link(dir.filePath("previous.png"), dir.filePath("background")));
+        const QString log = dir.filePath("set.log"), setter = dir.filePath("bg-set");
+        write(setter, "#!/bin/sh\necho \"$1\" >> '" + log.toUtf8() + "'\n");
+        QVERIFY(QFile::setPermissions(setter, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+
+        Studio::Options options;
+        options.detectBackends = false;
+        options.target = Target{120, 50, {}};
+        options.setBackground = setter;
+        options.currentBackgroundLink = dir.filePath("background");
+        {
+            Studio studio(paths, options);
+            QImage image(60, 25, QImage::Format_RGB32);
+            image.fill(Qt::red);
+            QVERIFY(image.save(dir.filePath("candidate.png")));
+            studio.setScene("x");
+            studio.importFiles({dir.filePath("candidate.png")});
+            studio.preview(0);
+            QCOMPARE(studio.previewing(), 0);
+        }  // closing the window puts the old background back
+        QTRY_VERIFY(QFileInfo(log).size() > 0 && QString::fromUtf8([&] { QFile f(log); f.open(QIODevice::ReadOnly); return f.readAll(); }()).count('\n') == 2);
+        QFile file(log);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QStringList calls = QString::fromUtf8(file.readAll()).trimmed().split('\n');
+        QVERIFY(calls.at(0).endsWith("candidate-1.png"));
+        QCOMPARE(calls.at(1), dir.filePath("previous.png"));
     }
 
     void keepStoresMasterAndExport()

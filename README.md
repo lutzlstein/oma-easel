@@ -4,7 +4,7 @@ Generates new background images for an installed [Omarchy](https://omarchy.org) 
 
 New backgrounds go into `~/.config/omarchy/backgrounds/<theme>/`, where Omarchy picks them up for that theme's background cycle. Themes themselves are never modified.
 
-> Working name. Phase 1: the commands work; the window comes next.
+> Working name, early days.
 
 ## How it works
 
@@ -22,6 +22,25 @@ Candidates wait in `~/.cache/easel/<theme>/<batch>/` until kept.
 - **Manual** (fallback): when no generator is available, easel prints the same prompt a backend would send, lists the reference images to attach, and gives short steps for any image platform you can use (ChatGPT, Gemini, Copilot…). Bring the result back with `easel import`, then keep it like any other candidate.
 
 `easel backends` shows what this machine has.
+
+## Window
+
+`easel` (or `easel open [theme]`) opens on the current theme. Pick references, type a scene, and press Enter.
+
+| Key | Action |
+|---|---|
+| Space | Generate a batch (or make the prompt in manual mode) |
+| Enter | Keep the selected candidate |
+| D | Discard the selected candidate |
+| V | Vary: new batch using the selected candidate as the only reference |
+| P | Preview on the desktop, or put the background back |
+| ← → ↑ ↓ | Move between candidates |
+| / | Type a scene |
+| I | Import images (or drop them onto the window) |
+| C | Copy the prompt |
+| Esc | End preview, cancel, or leave the scene field |
+| ? | Show the keys |
+| Q | Quit (asks first if candidates haven't been kept) |
 
 ## Commands
 
@@ -56,4 +75,4 @@ bin/build      # build/easel
 bin/test       # Qt Test, offscreen
 ```
 
-Needs `qt6-base`, `imagemagick`, and `codex`.
+Needs `qt6-base`, `qt6-declarative`, `imagemagick`, and optionally `codex`.
