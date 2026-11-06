@@ -31,6 +31,7 @@ public:
 private:
     void finish(int exitCode, QProcess::ExitStatus status);
     void fail(const QString &error);
+    void stop();
 
     QString m_codex;
     QString m_generatedImages;

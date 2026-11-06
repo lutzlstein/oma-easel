@@ -32,15 +32,19 @@ Candidates wait in `~/.cache/easel/<theme>/<batch>/` until kept.
 | Space | Generate a batch (or make the prompt in manual mode) |
 | Enter | Keep the selected candidate |
 | D | Discard the selected candidate |
-| V | Vary: new batch using the selected candidate as the only reference |
-| P | Preview on the desktop, or put the background back |
+| V | Vary: say what to change, or Esc for fresh takes in the same style |
+| R | Use the selected candidate as a reference |
+| P | Preview on an empty workspace, with a prompt to keep it or go back |
+| H | History: every earlier batch for the theme, with its prompt |
 | ← → ↑ ↓ | Move between candidates |
 | / | Type a scene |
 | I | Import images (or drop them onto the window) |
 | C | Copy the prompt |
-| Esc | End preview, cancel, or leave the scene field |
+| Esc | Close, cancel, or leave the scene field |
 | ? | Show the keys |
-| Q | Quit (asks first if candidates haven't been kept) |
+| Q | Quit (asks first while images are generating) |
+
+Generation keeps running when you switch themes; the header shows what's running for which theme and for how long, and clicking it goes back to that batch. Candidates stay in the history drawer whether or not you keep them.
 
 ## Commands
 

@@ -5,6 +5,8 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QRegularExpression>
+#include <csignal>
+#include <unistd.h>
 
 CodexGenerator::CodexGenerator(const QString &codex, const QString &generatedImages, QObject *parent)
     : Generator(parent), m_codex(codex), m_generatedImages(generatedImages) {
@@ -13,9 +15,12 @@ CodexGenerator::CodexGenerator(const QString &codex, const QString &generatedIma
     m_timeout.setSingleShot(true);
     m_timeout.setInterval(10 * 60 * 1000);
     connect(&m_timeout, &QTimer::timeout, this, [this] {
-        m_process.kill();
+        stop();
         fail("Codex did not finish within ten minutes.");
     });
+    // Codex runs in its own process group, so stopping a job stops everything
+    // it started, not just the first process.
+    m_process.setChildProcessModifier([] { ::setpgid(0, 0); });
     connect(&m_process, &QProcess::finished, this, &CodexGenerator::finish);
     connect(&m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
         if (error == QProcess::FailedToStart)
@@ -24,9 +29,19 @@ CodexGenerator::CodexGenerator(const QString &codex, const QString &generatedIma
 }
 
 CodexGenerator::~CodexGenerator() {
-    if (m_process.state() != QProcess::NotRunning) {
-        m_process.kill();
-        m_process.waitForFinished(2000);
+    stop();
+}
+
+void CodexGenerator::stop() {
+    if (m_process.state() == QProcess::NotRunning)
+        return;
+    const qint64 pid = m_process.processId();
+    if (pid > 0)
+        ::kill(-pid, SIGTERM);
+    if (!m_process.waitForFinished(1500)) {
+        if (pid > 0)
+            ::kill(-pid, SIGKILL);
+        m_process.waitForFinished(1500);
     }
 }
 
@@ -80,9 +95,9 @@ void CodexGenerator::start(const Request &request) {
 }
 
 void CodexGenerator::cancel() {
-    if (m_process.state() != QProcess::NotRunning)
-        m_process.kill();
-    fail("Cancelled.");
+    m_done = true;  // a cancelled job reports nothing more
+    m_timeout.stop();
+    stop();
 }
 
 void CodexGenerator::finish(int exitCode, QProcess::ExitStatus status) {

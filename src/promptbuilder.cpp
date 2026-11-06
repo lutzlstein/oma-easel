@@ -16,11 +16,15 @@ QString PromptBuilder::aspectLabel(const Target &target) {
 }
 
 QString PromptBuilder::build(const QString &scene, const QMap<QString, QString> &colors, int referenceCount,
-                             const Target &target) {
+                             const Target &target, const QString &change) {
     QStringList parts;
     parts << "Create one new desktop wallpaper.";
 
-    if (referenceCount == 1)
+    if (!change.trimmed().isEmpty() && referenceCount >= 1)
+        parts << "The first attached image is the starting point. Keep its composition, medium, and palette, and "
+                 "change only this: " + change.trimmed() + "." +
+                     (referenceCount > 1 ? QString(" Any other attached images are style references only.") : QString());
+    else if (referenceCount == 1)
         parts << "The attached image is a style reference only: do not edit or copy it. Match its medium, "
                  "brushwork, lighting, and mood in a new composition.";
     else if (referenceCount > 1)

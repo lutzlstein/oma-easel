@@ -21,7 +21,8 @@ ApplicationWindow {
     font.pixelSize: s.fontSize
 
     property int selected: 0
-    readonly property bool typing: sceneField.activeFocus
+    readonly property bool typing: sceneField.activeFocus || varyField.activeFocus
+    readonly property bool overlayOpen: help.visible || quitDialog.visible || varyCard.visible
 
     function clampSelection() {
         selected = Math.max(0, Math.min(selected, studio.candidates.length - 1))
@@ -33,50 +34,61 @@ ApplicationWindow {
         }
     }
     function requestQuit() {
-        if (studio.unkept > 0 || studio.busy)
+        if (studio.anyRunning)
             quitDialog.open()
         else
             Qt.quit()
+    }
+    function canUse(index) {
+        const c = studio.candidates[index]
+        return c !== undefined && (c.state === "ready" || c.state === "kept")
+    }
+    function askVary(index) {
+        if (!canUse(index))
+            return
+        win.selected = index
+        varyCard.open()
     }
 
     Connections {
         target: studio
         function onCandidatesChanged() { win.clampSelection() }
         function onThemeChanged() { win.selected = 0 }
+        function onSelectCandidate(index) { win.selected = index; grid.forceActiveFocus() }
     }
 
     onClosing: (close) => {
-        if (studio.unkept > 0 || studio.busy) {
+        if (studio.anyRunning) {
             close.accepted = false
             quitDialog.open()
         }
     }
 
-    // Letter keys act on candidates only while the scene field isn't being
-    // typed in; Enter in the field generates.
+    // Letter keys act on candidates only while nothing is being typed; Enter
+    // in the scene field generates.
+    readonly property bool keysLive: !typing && !overlayOpen
     Shortcut { sequence: "?"; enabled: !win.typing; context: Qt.ApplicationShortcut; onActivated: help.visible ? help.close() : help.open() }
-    Shortcut { sequence: "Q"; enabled: !win.typing; context: Qt.ApplicationShortcut; onActivated: win.requestQuit() }
-    Shortcut { sequence: "Space"; enabled: !win.typing; context: Qt.ApplicationShortcut; onActivated: studio.generate() }
-    Shortcut { sequences: ["Return", "Enter"]; enabled: !win.typing; context: Qt.ApplicationShortcut; onActivated: studio.keep(win.selected) }
-    Shortcut { sequence: "D"; enabled: !win.typing; context: Qt.ApplicationShortcut; onActivated: studio.discard(win.selected) }
-    Shortcut { sequence: "V"; enabled: !win.typing; context: Qt.ApplicationShortcut; onActivated: studio.vary(win.selected) }
+    Shortcut { sequence: "Q"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.requestQuit() }
+    Shortcut { sequence: "Space"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: studio.generate() }
+    Shortcut { sequences: ["Return", "Enter"]; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: studio.keep(win.selected) }
+    Shortcut { sequence: "D"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: studio.discard(win.selected) }
+    Shortcut { sequence: "V"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.askVary(win.selected) }
+    Shortcut { sequence: "R"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: if (win.canUse(win.selected)) studio.toggleReference(studio.candidates[win.selected].path) }
+    Shortcut { sequence: "P"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: studio.preview(win.selected) }
+    Shortcut { sequence: "H"; enabled: win.keysLive || history.visible; context: Qt.ApplicationShortcut; onActivated: history.visible ? history.close() : history.open() }
+    Shortcut { sequence: "I"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: studio.pickImports() }
+    Shortcut { sequence: "C"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: studio.copyPrompt() }
+    Shortcut { sequence: "Left"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.move(-1) }
+    Shortcut { sequence: "Right"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.move(1) }
+    Shortcut { sequence: "Up"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.move(-grid.columns) }
+    Shortcut { sequence: "Down"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.move(grid.columns) }
+    Shortcut { sequences: ["/", "Ctrl+L"]; enabled: !win.overlayOpen; context: Qt.ApplicationShortcut; onActivated: sceneField.forceActiveFocus() }
     Shortcut {
-        sequence: "P"; enabled: !win.typing; context: Qt.ApplicationShortcut
-        onActivated: studio.previewing === win.selected ? studio.endPreview() : studio.preview(win.selected)
-    }
-    Shortcut { sequence: "I"; enabled: !win.typing; context: Qt.ApplicationShortcut; onActivated: studio.pickImports() }
-    Shortcut { sequence: "C"; enabled: !win.typing; context: Qt.ApplicationShortcut; onActivated: studio.copyPrompt() }
-    Shortcut { sequence: "Left"; enabled: !win.typing; context: Qt.ApplicationShortcut; onActivated: win.move(-1) }
-    Shortcut { sequence: "Right"; enabled: !win.typing; context: Qt.ApplicationShortcut; onActivated: win.move(1) }
-    Shortcut { sequence: "Up"; enabled: !win.typing; context: Qt.ApplicationShortcut; onActivated: win.move(-grid.columns) }
-    Shortcut { sequence: "Down"; enabled: !win.typing; context: Qt.ApplicationShortcut; onActivated: win.move(grid.columns) }
-    Shortcut { sequences: ["/", "Ctrl+L"]; context: Qt.ApplicationShortcut; onActivated: sceneField.forceActiveFocus() }
-    Shortcut {
-        sequence: "Escape"; context: Qt.ApplicationShortcut
+        sequence: "Escape"; enabled: !varyCard.visible; context: Qt.ApplicationShortcut
         onActivated: {
             if (help.visible) help.close()
             else if (quitDialog.visible) quitDialog.close()
-            else if (studio.previewing >= 0) studio.endPreview()
+            else if (history.visible) history.close()
             else if (studio.busy) studio.cancel()
             else grid.forceActiveFocus()
         }
@@ -140,16 +152,38 @@ ApplicationWindow {
                     color: studio.manual ? s.accent : Qt.alpha(s.text, 0.55)
                 }
                 OText { text: studio.exportSize; muted: true }
+                // What the image agent is doing, for every theme. Click to go
+                // to that theme's batch.
+                Repeater {
+                    model: studio.activity
+                    OButton {
+                        required property var modelData
+                        primary: true
+                        text: {
+                            const t = modelData.seconds
+                            const clock = Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0")
+                            const done = modelData.total - modelData.pending
+                            return qsTr("%1 · generating %2/%3 · %4").arg(modelData.themeName).arg(done).arg(modelData.total).arg(clock)
+                        }
+                        onClicked: modelData.theme === studio.themeSlug ? studio.openBatch(modelData.batch)
+                                                                      : studio.loadTheme(modelData.theme)
+                    }
+                }
+                OButton {
+                    text: qsTr("history %1").arg(studio.history.length)
+                    onClicked: history.visible ? history.close() : history.open()
+                }
             }
 
-            // Existing backgrounds; clicked ones become style references.
+            // References: the theme's backgrounds, then any candidates chosen
+            // as references. Clicking toggles.
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: win.gap
                 OText {
                     text: studio.references.length === 0
-                          ? qsTr("Style references · click backgrounds to use them (optional)")
-                          : qsTr("%n style reference(s)", "", studio.references.length)
+                          ? qsTr("Style references · click backgrounds or candidates to use them (optional)")
+                          : qsTr("%n reference(s)", "", studio.references.length)
                     muted: studio.references.length === 0
                 }
                 ListView {
@@ -160,22 +194,6 @@ ApplicationWindow {
                     spacing: win.gap
                     clip: true
                     model: studio.backgrounds
-                    footer: Item {
-                        // A varied candidate is a reference that isn't one of the theme's backgrounds.
-                        readonly property string path: studio.references.length === 1
-                            && studio.backgrounds.every(b => b.path !== studio.references[0]) ? studio.references[0] : ""
-                        width: path ? references.height * 16 / 9 + win.gap : 0
-                        height: references.height
-                        Thumbnail {
-                            visible: parent.path !== ""
-                            x: win.gap
-                            width: references.height * 16 / 9; height: references.height
-                            path: parent.path
-                            chosen: true
-                            caption: qsTr("varying")
-                            onClicked: studio.toggleReference(path)
-                        }
-                    }
                     delegate: Thumbnail {
                         required property var modelData
                         width: height * 16 / 9
@@ -184,6 +202,23 @@ ApplicationWindow {
                         chosen: modelData.selected
                         dimmed: studio.references.length > 0 && !modelData.selected
                         onClicked: studio.toggleReference(modelData.path)
+                    }
+                    footer: Row {
+                        height: references.height
+                        leftPadding: studio.extraReferences.length > 0 ? win.gap : 0
+                        spacing: win.gap
+                        Repeater {
+                            model: studio.extraReferences
+                            Thumbnail {
+                                required property var modelData
+                                width: height * studio.aspect
+                                height: references.height
+                                path: modelData.path
+                                chosen: true
+                                caption: qsTr("candidate")
+                                onClicked: studio.toggleReference(modelData.path)
+                            }
+                        }
                     }
                 }
             }
@@ -262,21 +297,41 @@ ApplicationWindow {
                 }
             }
 
-            // The batch.
+            // The prompt the batch on screen was made from.
+            OText {
+                Layout.fillWidth: true
+                visible: studio.candidates.length > 0 && studio.batchScene !== ""
+                text: "“" + studio.batchScene + "”" + (studio.batchChange ? qsTr("  ·  varied: %1").arg(studio.batchChange) : "")
+                elide: Text.ElideRight
+                muted: true
+            }
+
+            // The batch. Columns are chosen so the candidates come out as large
+            // as the space allows, down to one per row.
             GridView {
                 id: grid
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
                 focus: true
-                // Up to three across; fewer candidates get bigger cells,
-                // sized so every row fits without scrolling when it can.
-                readonly property int columns: Math.max(1, Math.min(3, count))
+                model: studio.candidates
+                currentIndex: win.selected
+
+                readonly property int columns: {
+                    const n = Math.max(1, count)
+                    let best = 1, bestWidth = 0
+                    for (let c = 1; c <= n; ++c) {
+                        const rows = Math.ceil(n / c)
+                        const w = Math.min(width / c, height / rows * studio.aspect)
+                        if (w > bestWidth + 0.5) { best = c; bestWidth = w }
+                    }
+                    return best
+                }
                 readonly property int rows: Math.max(1, Math.ceil(count / columns))
                 cellWidth: Math.floor(Math.min(width / columns, height / rows * studio.aspect))
                 cellHeight: Math.floor(cellWidth / studio.aspect)
-                model: studio.candidates
-                currentIndex: win.selected
+                // Center the grid when the cells don't fill the width.
+                leftMargin: Math.max(0, (width - cellWidth * columns) / 2)
 
                 delegate: Item {
                     id: cell
@@ -288,6 +343,7 @@ ApplicationWindow {
                     height: grid.cellHeight
 
                     Rectangle {
+                        id: frame
                         anchors.fill: parent
                         anchors.margins: win.gap / 2
                         radius: theme.radius
@@ -301,7 +357,7 @@ ApplicationWindow {
                             anchors.margins: parent.border.width
                             visible: cell.hasImage
                             source: visible ? "file://" + modelData.path : ""
-                            sourceSize.width: 900
+                            sourceSize.width: 1600
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
                             cache: false
@@ -320,26 +376,33 @@ ApplicationWindow {
                             text: modelData.error
                             wrapMode: Text.Wrap
                             elide: Text.ElideRight
-                            color: theme.style.accent
+                            color: s.accent
                             verticalAlignment: Text.AlignVCenter
                             horizontalAlignment: Text.AlignHCenter
                         }
-                        Rectangle {
-                            visible: modelData.state === "kept" || studio.previewing === cell.index
+                        Row {
                             anchors.top: parent.top; anchors.left: parent.left; anchors.margins: 10
-                            radius: Math.min(3, theme.radius)
-                            color: s.background
-                            border.width: 1
-                            border.color: s.border
-                            width: badge.implicitWidth + 12; height: badge.implicitHeight + 6
-                            OText {
-                                id: badge
-                                anchors.centerIn: parent
-                                text: studio.previewing === cell.index ? qsTr("previewing") : qsTr("kept")
-                            }
+                            spacing: 6
+                            Badge { visible: modelData.state === "kept"; text: qsTr("kept") }
+                            Badge { visible: modelData.reference; text: qsTr("reference") }
+                            Badge { visible: studio.previewing === cell.index; text: qsTr("previewing") }
                         }
+
+                        HoverHandler { id: cellHover }
                         TapHandler { onTapped: { win.selected = cell.index; grid.forceActiveFocus() } }
                         TapHandler { onDoubleTapped: studio.preview(cell.index) }
+
+                        // Mouse actions, mirroring the keys, while hovered or selected.
+                        Row {
+                            anchors.bottom: parent.bottom; anchors.right: parent.right; anchors.margins: 10
+                            spacing: 6
+                            visible: cell.hasImage && (cellHover.hovered || cell.isSelected)
+                            OButton { text: qsTr("keep"); visible: modelData.state === "ready"; onClicked: studio.keep(cell.index); solid: true }
+                            OButton { text: qsTr("vary"); onClicked: win.askVary(cell.index); solid: true }
+                            OButton { text: modelData.reference ? qsTr("unreference") : qsTr("reference"); onClicked: studio.toggleReference(modelData.path); solid: true }
+                            OButton { text: qsTr("preview"); onClicked: studio.preview(cell.index); solid: true }
+                            OButton { text: qsTr("discard"); onClicked: studio.discard(cell.index); solid: true }
+                        }
                     }
                 }
 
@@ -357,11 +420,21 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 OText { Layout.fillWidth: true; text: studio.message; elide: Text.ElideRight }
                 OText {
-                    text: qsTr("space generate · enter keep · d discard · v vary · p preview · ? keys")
+                    text: qsTr("space generate · enter keep · v vary · r reference · p preview · h history · ? keys")
                     muted: true
                 }
             }
         }
+    }
+
+    component Badge: Rectangle {
+        property alias text: label.text
+        radius: Math.min(3, theme.radius)
+        color: s.background
+        border.width: 1
+        border.color: s.border
+        width: label.implicitWidth + 12; height: label.implicitHeight + 6
+        OText { id: label; anchors.centerIn: parent }
     }
 
     // Overlay cards use the shell's popup surface: popup background with the
@@ -374,6 +447,118 @@ ApplicationWindow {
         background: Rectangle { color: s.popupBackground; radius: theme.radius; border.width: 1; border.color: s.border }
     }
 
+    // Every earlier batch for the theme, with its prompt. Click a candidate to
+    // use it as a reference; open a batch to bring it back to the grid.
+    Drawer {
+        id: history
+        edge: Qt.RightEdge
+        width: Math.min(win.width * 0.4, 520 * s.spacing)
+        height: win.height
+        Overlay.modal: Rectangle { color: Qt.alpha(s.background, 0.4) }
+        background: Rectangle {
+            color: s.popupBackground
+            Rectangle { width: 1; height: parent.height; color: s.border }
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 16 * s.spacing
+            spacing: 12 * s.spacing
+
+            RowLayout {
+                Layout.fillWidth: true
+                OText { Layout.fillWidth: true; text: qsTr("History · %1").arg(studio.themeName); scale: 1.167 }
+                OText { text: qsTr("click to reference · double-click to open"); muted: true }
+            }
+            OText {
+                visible: studio.history.length === 0
+                text: qsTr("Nothing generated for this theme yet.")
+                muted: true
+            }
+            ListView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                spacing: 18 * s.spacing
+                model: studio.history
+                ScrollIndicator.vertical: ScrollIndicator {}
+                delegate: ColumnLayout {
+                    id: batchItem
+                    required property var modelData
+                    width: ListView.view.width
+                    spacing: 6 * s.spacing
+                    RowLayout {
+                        Layout.fillWidth: true
+                        OText {
+                            Layout.fillWidth: true
+                            text: "“" + (batchItem.modelData.scene || qsTr("untitled")) + "”"
+                            wrapMode: Text.Wrap
+                        }
+                        OButton { text: qsTr("open"); onClicked: { studio.openBatch(batchItem.modelData.batch); history.close() } }
+                    }
+                    OText {
+                        Layout.fillWidth: true
+                        text: [Qt.formatDateTime(new Date(batchItem.modelData.createdAt), "MMM d, hh:mm"),
+                               batchItem.modelData.backend,
+                               batchItem.modelData.change ? qsTr("varied: %1").arg(batchItem.modelData.change) : ""]
+                              .filter(x => x).join("  ·  ")
+                        wrapMode: Text.Wrap
+                        muted: true
+                    }
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        Repeater {
+                            model: batchItem.modelData.candidates
+                            Thumbnail {
+                                required property var modelData
+                                width: (batchItem.width - 6) / 2
+                                height: width / studio.aspect
+                                path: modelData.path
+                                chosen: modelData.reference
+                                caption: modelData.keptAs ? qsTr("kept") : ""
+                                onClicked: studio.toggleReference(modelData.path)
+                                TapHandler {
+                                    onDoubleTapped: { studio.openBatch(batchItem.modelData.batch, modelData.path); history.close() }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Vary asks what to change. Enter varies with that change; dismissing it
+    // varies the usual way, with the candidate as the only style reference.
+    Card {
+        id: varyCard
+        property bool submitted: false
+        width: Math.min(win.width * 0.6, 720 * s.spacing)
+        onOpened: { submitted = false; varyField.text = ""; varyField.forceActiveFocus() }
+        onClosed: {
+            studio.vary(win.selected, submitted ? varyField.text : "")
+            grid.forceActiveFocus()
+        }
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 12 * s.spacing
+            OText { text: qsTr("Vary this candidate"); scale: 1.167 }
+            OField {
+                id: varyField
+                Layout.fillWidth: true
+                placeholderText: qsTr("What should change? warmer light, add fog, a boat on the water…")
+                onAccepted: { varyCard.submitted = true; varyCard.close() }
+            }
+            OText {
+                Layout.fillWidth: true
+                text: qsTr("Enter keeps this image and changes only that. Esc makes fresh takes on the same scene in its style.")
+                wrapMode: Text.Wrap
+                muted: true
+            }
+        }
+    }
+
     Card {
         id: help
         ColumnLayout {
@@ -383,13 +568,15 @@ ApplicationWindow {
                     ["space", qsTr("Generate a batch (or make the prompt in manual mode)")],
                     ["enter", qsTr("Keep the selected candidate")],
                     ["d", qsTr("Discard the selected candidate")],
-                    ["v", qsTr("Vary: new batch using the selected candidate as reference")],
-                    ["p", qsTr("Preview on the desktop, or put the background back")],
+                    ["v", qsTr("Vary: say what to change, or Esc for fresh takes")],
+                    ["r", qsTr("Use the selected candidate as a reference")],
+                    ["p", qsTr("Preview on an empty workspace")],
+                    ["h", qsTr("History of earlier batches")],
                     ["← → ↑ ↓", qsTr("Move between candidates")],
                     ["/", qsTr("Type a scene")],
                     ["i", qsTr("Import images")],
                     ["c", qsTr("Copy the prompt")],
-                    ["esc", qsTr("End preview, cancel, or leave the scene field")],
+                    ["esc", qsTr("Close, cancel, or leave the scene field")],
                     ["?", qsTr("Show these keys")],
                     ["q", qsTr("Quit")]
                 ]
@@ -408,10 +595,7 @@ ApplicationWindow {
         ColumnLayout {
             spacing: 14 * s.spacing
             OText { text: qsTr("Quit Easel?"); scale: 1.333 }
-            OText {
-                text: studio.busy ? qsTr("Candidates are still generating and will be lost.")
-                                  : qsTr("%n candidate(s) haven't been kept and will be lost.", "", studio.unkept)
-            }
+            OText { text: qsTr("Images are still generating. Quitting stops them.") }
             RowLayout {
                 Layout.alignment: Qt.AlignRight
                 spacing: win.gap

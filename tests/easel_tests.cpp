@@ -227,42 +227,166 @@ private slots:
         QCOMPARE(studio.candidates().size(), 1);
         studio.vary(0);
         QCOMPARE(studio.references().size(), 1);
-        QVERIFY(studio.references().first().contains("/vary-"));
+        QVERIFY(studio.references().first().endsWith("candidate-1.png"));
     }
 
-    void studioPreviewRestoresBackground()
+    void emptyWorkspaceSkipsBusyOnes()
     {
+        QCOMPARE(PreviewSession::emptyWorkspace(R"([{"id":1,"windows":2},{"id":2,"windows":0},{"id":3,"windows":1}])"), 2);
+        QCOMPARE(PreviewSession::emptyWorkspace(R"([{"id":1,"windows":1},{"id":2,"windows":1},{"id":-98,"windows":1}])"), 3);
+        QCOMPARE(PreviewSession::emptyWorkspace("[]"), 1);
+    }
+
+    void previewKeepsOrRestores_data()
+    {
+        QTest::addColumn<QByteArray>("answer");
+        QTest::addColumn<bool>("keep");
+        QTest::newRow("keep") << QByteArray("k") << true;
+        QTest::newRow("exit") << QByteArray("x") << false;
+    }
+
+    void previewKeepsOrRestores()
+    {
+        if (QStandardPaths::findExecutable("magick").isEmpty())
+            QSKIP("ImageMagick is not installed.");
+        QFETCH(QByteArray, answer);
+        QFETCH(bool, keep);
         QTemporaryDir dir;
         const Paths paths = Paths::underRoot(dir.path());
         write(paths.stockThemes + "/nord/colors.toml", "accent = \"#81a1c1\"\n");
         write(paths.currentThemeName, "nord\n");
         write(dir.filePath("previous.png"), "x");
         QVERIFY(QFile::link(dir.filePath("previous.png"), dir.filePath("background")));
-        const QString log = dir.filePath("set.log"), setter = dir.filePath("bg-set");
-        write(setter, "#!/bin/sh\necho \"$1\" >> '" + log.toUtf8() + "'\n");
-        QVERIFY(QFile::setPermissions(setter, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+
+        // Fakes for everything that would touch the desktop: the background
+        // setter and hyprctl log their calls, and the "terminal" runs the
+        // prompt script without gum and answers it.
+        const QString setLog = dir.filePath("set.log"), hyprLog = dir.filePath("hypr.log");
+        auto script = [&](const QString &name, const QByteArray &body) {
+            write(dir.filePath(name), "#!/bin/sh\n" + body);
+            QVERIFY(QFile::setPermissions(dir.filePath(name), QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+        };
+        script("bg-set", "echo \"$1\" >> '" + setLog.toUtf8() + "'\n");
+        script("hyprctl", "echo \"$*\" >> '" + hyprLog.toUtf8() + "'\necho '[]'\n");
+        script("terminal", "echo " + answer + " | PATH=/nonexistent /bin/bash \"$5\"\n");
 
         Studio::Options options;
         options.detectBackends = false;
         options.target = Target{120, 50, {}};
-        options.setBackground = setter;
-        options.currentBackgroundLink = dir.filePath("background");
-        {
-            Studio studio(paths, options);
-            QImage image(60, 25, QImage::Format_RGB32);
-            image.fill(Qt::red);
-            QVERIFY(image.save(dir.filePath("candidate.png")));
-            studio.setScene("x");
-            studio.importFiles({dir.filePath("candidate.png")});
-            studio.preview(0);
-            QCOMPARE(studio.previewing(), 0);
-        }  // closing the window puts the old background back
-        QTRY_VERIFY(QFileInfo(log).size() > 0 && QString::fromUtf8([&] { QFile f(log); f.open(QIODevice::ReadOnly); return f.readAll(); }()).count('\n') == 2);
-        QFile file(log);
-        QVERIFY(file.open(QIODevice::ReadOnly));
-        const QStringList calls = QString::fromUtf8(file.readAll()).trimmed().split('\n');
-        QVERIFY(calls.at(0).endsWith("candidate-1.png"));
-        QCOMPARE(calls.at(1), dir.filePath("previous.png"));
+        options.preview = {dir.filePath("hyprctl"), dir.filePath("bg-set"), dir.filePath("terminal"), dir.filePath("background")};
+        Studio studio(paths, options);
+        QImage image(60, 25, QImage::Format_RGB32);
+        image.fill(Qt::red);
+        QVERIFY(image.save(dir.filePath("candidate.png")));
+        studio.setScene("red sky");
+        studio.importFiles({dir.filePath("candidate.png")});
+        studio.preview(0);
+        QCOMPARE(studio.previewing(), 0);
+        QTRY_COMPARE(studio.previewing(), -1);
+
+        auto lines = [](const QString &path) {
+            QFile file(path);
+            return file.open(QIODevice::ReadOnly) ? QString::fromUtf8(file.readAll()).trimmed().split('\n') : QStringList();
+        };
+        QTRY_COMPARE(lines(setLog).size(), 2);
+        const QStringList sets = lines(setLog);
+        QVERIFY(sets.at(0).endsWith("candidate-1.png"));
+        if (keep) {
+            QCOMPARE(studio.candidates().at(0).toMap().value("state").toString(), QString("kept"));
+            QVERIFY(sets.at(1).endsWith("1-red-sky.webp"));
+        } else {
+            QCOMPARE(studio.candidates().at(0).toMap().value("state").toString(), QString("ready"));
+            QCOMPARE(sets.at(1), dir.filePath("previous.png"));
+        }
+        QVERIFY(lines(hyprLog).join('\n').contains("hl.dsp.focus({ workspace = \"1\" })"));
+    }
+
+    void historyRemembersBatchesAndPrompts()
+    {
+        QTemporaryDir dir;
+        const Paths paths = Paths::underRoot(dir.path());
+        write(paths.stockThemes + "/nord/colors.toml", "accent = \"#81a1c1\"\n");
+        write(paths.currentThemeName, "nord\n");
+        Studio::Options options;
+        options.detectBackends = false;
+        options.target = Target{120, 50, {}};
+        Studio studio(paths, options);
+        QImage image(60, 25, QImage::Format_RGB32);
+        image.fill(Qt::blue);
+        QVERIFY(image.save(dir.filePath("a.png")));
+
+        studio.setScene("blue lake");
+        studio.importFiles({dir.filePath("a.png")});
+        QCOMPARE(studio.history().size(), 1);
+        const QVariantMap batch = studio.history().first().toMap();
+        QCOMPARE(batch.value("scene").toString(), QString("blue lake"));
+        const QString candidate = batch.value("candidates").toList().first().toMap().value("path").toString();
+
+        // A candidate can be a reference, and reopening the batch restores its scene.
+        studio.toggleReference(candidate);
+        QCOMPARE(studio.extraReferences().size(), 1);
+        studio.setScene("something else");
+        studio.openBatch(batch.value("batch").toString());
+        QCOMPARE(studio.scene(), QString("blue lake"));
+        QCOMPARE(studio.batchScene(), QString("blue lake"));
+        QVERIFY(studio.candidates().first().toMap().value("reference").toBool());
+    }
+
+    void variationPromptKeepsTheCandidate()
+    {
+        const Target target{3440, 1440, {}};
+        const QString varied = PromptBuilder::build("lake", {}, 1, target, "warmer light");
+        QVERIFY(varied.contains("starting point"));
+        QVERIFY(varied.contains("change only this: warmer light."));
+        QVERIFY(!varied.contains("style reference only"));
+        QVERIFY(PromptBuilder::build("lake", {}, 1, target).contains("style reference only"));
+    }
+
+    void generationOutlivesThemeSwitch()
+    {
+        QTemporaryDir dir;
+        const Paths paths = Paths::underRoot(dir.path());
+        write(paths.stockThemes + "/nord/colors.toml", "accent = \"#81a1c1\"\n");
+        write(paths.stockThemes + "/gruvbox/colors.toml", "accent = \"#d79921\"\n");
+        write(paths.currentThemeName, "nord\n");
+        QImage image(60, 25, QImage::Format_RGB32);
+        image.fill(Qt::green);
+        QVERIFY(image.save(dir.filePath("fixture.png")));
+
+        // A fake codex: waits a moment, "generates" by copying a fixture into
+        // the image folder, and replies with the path like the real one.
+        const QString codex = dir.filePath("fake-codex");
+        write(codex, "#!/bin/sh\n"
+                     "while [ $# -gt 0 ]; do [ \"$1\" = --output-last-message ] && out=\"$2\"; shift; done\n"
+                     "sleep 1\n"
+                     "dest='" + paths.codexImages.toUtf8() + "'/run-$$/image.png\n"
+                     "mkdir -p \"$(dirname \"$dest\")\" && cp '" + dir.filePath("fixture.png").toUtf8() + "' \"$dest\"\n"
+                     "echo \"$dest\" > \"$out\"\n");
+        QVERIFY(QFile::setPermissions(codex, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+
+        Studio::Options options;
+        options.detectBackends = false;
+        options.backend = "codex";
+        options.codex = codex;
+        options.target = Target{120, 50, {}};
+        Studio studio(paths, options);
+        studio.setScene("green hills");
+        studio.setCount(2);
+        studio.generate();
+        QVERIFY(studio.busy());
+        QCOMPARE(studio.activity().size(), 1);
+
+        // Switching away leaves the jobs running; they still land in nord's history.
+        studio.loadTheme("gruvbox");
+        QVERIFY(studio.anyRunning());
+        QVERIFY(studio.candidates().isEmpty());
+        QCOMPARE(studio.activity().first().toMap().value("theme").toString(), QString("nord"));
+        QTRY_VERIFY_WITH_TIMEOUT(!studio.anyRunning(), 10000);
+
+        studio.loadTheme("nord");
+        QCOMPARE(studio.history().size(), 1);
+        QCOMPARE(studio.history().first().toMap().value("candidates").toList().size(), 2);
+        QCOMPARE(studio.history().first().toMap().value("scene").toString(), QString("green hills"));
     }
 
     void keepStoresMasterAndExport()

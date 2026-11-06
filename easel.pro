@@ -14,6 +14,7 @@ HEADERS += \
     src/library.h \
     src/backends.h \
     src/portalfilepicker.h \
+    src/previewsession.h \
     src/studio.h \
     src/theme.h \
     src/translator.h \
@@ -29,6 +30,7 @@ SOURCES += \
     src/library.cpp \
     src/backends.cpp \
     src/portalfilepicker.cpp \
+    src/previewsession.cpp \
     src/studio.cpp \
     src/theme.cpp \
     src/translator.cpp \

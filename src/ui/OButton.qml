@@ -7,6 +7,8 @@ import QtQuick.Controls.Basic
 Button {
     id: control
     property bool primary: false
+    // Over images, the button sits on an opaque chip of the theme background.
+    property bool solid: false
     readonly property var s: theme.style
     readonly property color ink: primary ? s.accent : s.controlColor
 
@@ -30,9 +32,10 @@ Button {
     }
     background: Rectangle {
         radius: theme.radius
-        color: Qt.alpha(control.ink, control.down ? control.s.pressedFill
+        readonly property color fill: Qt.alpha(control.ink, control.down ? control.s.pressedFill
                                    : control.hovered || control.activeFocus ? control.s.hoverFill
                                    : control.s.normalFill)
+        color: control.solid ? Qt.tint(Qt.alpha(control.s.background, 0.9), fill) : fill
         border.width: control.s.borderWidth
         border.color: Qt.alpha(control.ink, !control.enabled ? 0.15
                                           : control.primary ? 0.9
