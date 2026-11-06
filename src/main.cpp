@@ -5,9 +5,12 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QQuickWindow>
+#include <QTimer>
 #include <QUrl>
 
 #include "cli.h"
+#include "logoprovider.h"
 #include "paths.h"
 #include "studio.h"
 #include "theme.h"
@@ -25,7 +28,10 @@ int main(int argc, char *argv[]) {
         qputenv("QT_QPA_PLATFORM", "offscreen");
 
     QGuiApplication app(argc, argv);
+    // The working name lives here (and in the binary, package, and desktop
+    // file names); the window reads it from Qt.application.displayName.
     app.setApplicationName("easel");
+    app.setApplicationDisplayName("Easel");
     app.setApplicationVersion("0.1.0");
 
     if (command)
@@ -51,6 +57,7 @@ int main(int argc, char *argv[]) {
         studio.loadTheme(arguments.at(2));
 
     QQmlApplicationEngine engine;
+    engine.addImageProvider("logo", new LogoProvider);
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
     engine.rootContext()->setContextProperty("translator", &translator);
     engine.rootContext()->setContextProperty("theme", &theme);
@@ -58,6 +65,17 @@ int main(int argc, char *argv[]) {
     engine.load(QUrl("qrc:/Main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;
+
+    // For READMEs and checking the look without touching the desktop: with
+    // EASEL_SCREENSHOT=<file> (and QT_QPA_PLATFORM=offscreen), save the
+    // window once it has drawn and quit.
+    const QString screenshot = qEnvironmentVariable("EASEL_SCREENSHOT");
+    if (!screenshot.isEmpty())
+        QTimer::singleShot(2500, &app, [&] {
+            if (auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first()))
+                window->grabWindow().save(screenshot);
+            app.quit();
+        });
 
     return app.exec();
 }

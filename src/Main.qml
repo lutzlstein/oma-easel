@@ -10,7 +10,7 @@ ApplicationWindow {
     minimumWidth: 860
     minimumHeight: 620
     visible: true
-    title: "Easel"
+    title: Qt.application.displayName
 
     // Everything takes the shell's look from the current theme's shell.toml,
     // so easel sits on the desktop like the bar, menus, and panels do.
@@ -120,31 +120,49 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 spacing: win.gap * 1.5
 
-                ODropdown {
-                    id: themePicker
-                    Layout.preferredWidth: 260 * s.spacing
-                    model: studio.themes
-                    textRole: "name"
-                    valueRole: "slug"
-                    Component.onCompleted: currentIndex = indexOfValue(studio.themeSlug)
-                    onActivated: studio.loadTheme(currentValue)
-                    Connections {
-                        target: studio
-                        function onThemeChanged() { themePicker.currentIndex = themePicker.indexOfValue(studio.themeSlug) }
+                Row {
+                    spacing: win.gap
+                    AppLogo {
+                        height: 30 * s.spacing; width: height * 379 / 322
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    OText {
+                        text: Qt.application.displayName
+                        size: 1.333
+                        font.bold: true
+                        anchors.verticalCenter: parent.verticalCenter
                     }
                 }
 
-                Row {
-                    spacing: 2
-                    Repeater {
-                        model: studio.palette
-                        Rectangle {
-                            required property var modelData
-                            width: 16 * s.spacing; height: 16 * s.spacing
-                            radius: Math.min(3, theme.radius)
-                            color: modelData.color
-                            border.width: 1
-                            border.color: Qt.alpha(s.text, 0.2)
+                // The theme and, under it, its palette.
+                ColumnLayout {
+                    Layout.alignment: Qt.AlignTop
+                    spacing: 6 * s.spacing
+                    ODropdown {
+                        id: themePicker
+                        Layout.preferredWidth: 260 * s.spacing
+                        model: studio.themes
+                        textRole: "name"
+                        valueRole: "slug"
+                        Component.onCompleted: currentIndex = indexOfValue(studio.themeSlug)
+                        onActivated: studio.loadTheme(currentValue)
+                        Connections {
+                            target: studio
+                            function onThemeChanged() { themePicker.currentIndex = themePicker.indexOfValue(studio.themeSlug) }
+                        }
+                    }
+                    Row {
+                        spacing: 2
+                        Repeater {
+                            model: studio.palette
+                            Rectangle {
+                                required property var modelData
+                                width: 16 * s.spacing; height: 16 * s.spacing
+                                radius: Math.min(3, theme.radius)
+                                color: modelData.color
+                                border.width: 1
+                                border.color: Qt.alpha(s.text, 0.2)
+                            }
                         }
                     }
                 }
@@ -475,7 +493,7 @@ ApplicationWindow {
 
             RowLayout {
                 Layout.fillWidth: true
-                OText { Layout.fillWidth: true; text: qsTr("History · %1").arg(studio.themeName); scale: 1.167 }
+                OText { Layout.fillWidth: true; text: qsTr("History · %1").arg(studio.themeName); size: 1.167 }
                 OText { text: qsTr("click to reference · double-click to open"); muted: true }
             }
             OText {
@@ -551,7 +569,7 @@ ApplicationWindow {
         ColumnLayout {
             anchors.fill: parent
             spacing: 12 * s.spacing
-            OText { text: qsTr("Vary this candidate"); scale: 1.167 }
+            OText { text: qsTr("Vary this candidate"); size: 1.167 }
             OField {
                 id: varyField
                 Layout.fillWidth: true
@@ -603,7 +621,7 @@ ApplicationWindow {
         property string path
         ColumnLayout {
             spacing: 14 * s.spacing
-            OText { text: qsTr("Remove this background?"); scale: 1.333 }
+            OText { text: qsTr("Remove this background?"); size: 1.333 }
             OText {
                 text: qsTr("%1 leaves %2's background cycle. It and its master go to the trash, and the candidate stays in history.")
                       .arg(removeCard.path.split("/").pop()).arg(studio.themeName)
@@ -623,7 +641,7 @@ ApplicationWindow {
         id: quitDialog
         ColumnLayout {
             spacing: 14 * s.spacing
-            OText { text: qsTr("Quit Easel?"); scale: 1.333 }
+            OText { text: qsTr("Quit %1?").arg(Qt.application.displayName); size: 1.333 }
             OText { text: qsTr("Images are still generating. Quitting stops them.") }
             RowLayout {
                 Layout.alignment: Qt.AlignRight
