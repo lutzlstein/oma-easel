@@ -80,8 +80,10 @@ The export size comes from `hyprctl monitors`: the widest landscape monitor's sh
 ## Install
 
 ```sh
-omarchy pkg aur add oma-easel
+sudo pacman -U https://github.com/lutzlstein/oma-easel/releases/latest/download/oma-easel-x86_64.pkg.tar.zst
 ```
+
+That installs the latest release and pulls its dependencies from the Arch repos. An AUR package is planned.
 
 Optional: the [bar widget](https://github.com/lutzlstein/oma-easel-plugin) opens Oma Easel and shows what's generating.
 
