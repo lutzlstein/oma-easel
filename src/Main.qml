@@ -123,7 +123,7 @@ ApplicationWindow {
                 Row {
                     spacing: win.gap
                     AppLogo {
-                        height: 34 * s.spacing; width: height * 512 / 458
+                        height: 34 * s.spacing; width: height * 512 / 444
                         anchors.verticalCenter: parent.verticalCenter
                     }
                     OText {

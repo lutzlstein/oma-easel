@@ -1,6 +1,6 @@
 import QtQuick
 
-// The app's mark: an easel on an 80s terminal. It carries its own contrast,
+// The app's mark: an easel on a VT100-style terminal. It carries its own contrast,
 // so it shows in full color on every theme.
 Image {
     source: "qrc:/assets/logo.png"
