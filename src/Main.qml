@@ -21,6 +21,10 @@ ApplicationWindow {
     font.pixelSize: s.fontSize
 
     property int selected: 0
+    // Set once the user confirms quitting. Qt.quit() closes the window first,
+    // and the close check below must not veto a quit that was already confirmed.
+    property bool quitting: false
+    function quitNow() { quitting = true; Qt.quit() }
     readonly property bool typing: sceneField.activeFocus || varyField.activeFocus
     readonly property bool overlayOpen: help.visible || quitDialog.visible || varyCard.visible
 
@@ -37,7 +41,7 @@ ApplicationWindow {
         if (studio.anyRunning)
             quitDialog.open()
         else
-            Qt.quit()
+            win.quitNow()
     }
     function canUse(index) {
         const c = studio.candidates[index]
@@ -58,7 +62,7 @@ ApplicationWindow {
     }
 
     onClosing: (close) => {
-        if (studio.anyRunning) {
+        if (studio.anyRunning && !win.quitting) {
             close.accepted = false
             quitDialog.open()
         }
@@ -600,7 +604,7 @@ ApplicationWindow {
                 Layout.alignment: Qt.AlignRight
                 spacing: win.gap
                 OButton { text: qsTr("Cancel"); onClicked: quitDialog.close() }
-                OButton { text: qsTr("Quit"); primary: true; onClicked: Qt.quit() }
+                OButton { text: qsTr("Quit"); primary: true; onClicked: win.quitNow() }
             }
         }
     }
