@@ -16,6 +16,7 @@ ApplicationWindow {
     // so easel sits on the desktop like the bar, menus, and panels do.
     readonly property var s: theme.style
     readonly property real gap: 8 * s.spacing
+    FontLoader { id: wordmarkFont; source: "qrc:/assets/fonts/Bitcount.ttf" }
     color: s.background
     font.family: s.fontFamily
     font.pixelSize: s.fontSize
@@ -126,10 +127,14 @@ ApplicationWindow {
                         height: 34 * s.spacing; width: height * 512 / 444
                         anchors.verticalCenter: parent.verticalCenter
                     }
+                    // The wordmark is set in Bitcount at weight 400 (SIL OFL,
+                    // bundled in src/assets/fonts); the rest of the window uses
+                    // the system font.
                     OText {
                         text: Qt.application.displayName
-                        size: 1.333
-                        font.bold: true
+                        font.family: wordmarkFont.font.family
+                        font.weight: 400
+                        font.pixelSize: Math.round(26 * s.spacing)
                         anchors.verticalCenter: parent.verticalCenter
                     }
                 }
