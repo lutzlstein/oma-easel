@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Oma Easel
+Comment=Generate new backgrounds for your Omarchy themes
+Exec=oma-easel %F
+Icon=oma-easel
+Terminal=false
+Categories=Graphics;Utility;
+StartupWMClass=oma-easel

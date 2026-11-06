@@ -1,0 +1,28 @@
+# Local build from this checkout: bin/install runs makepkg here. The AUR
+# package builds the same way from a tagged release tarball (see aur/).
+pkgname=oma-easel
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Generate new backgrounds for your Omarchy themes'
+arch=('x86_64' 'aarch64')
+url='https://github.com/lutzlstein/oma-easel'
+license=('MIT')
+depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'imagemagick' 'xdg-desktop-portal' 'libsecret' 'hyprland')
+optdepends=('codex: generate with your ChatGPT login through Codex')
+makedepends=('gcc' 'make')
+source=()
+sha256sums=()
+
+build() {
+  cd "$startdir/.."
+  ./bin/build
+}
+
+package() {
+  cd "$startdir/.."
+  install -Dm755 build/oma-easel "$pkgdir/usr/bin/oma-easel"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 src/assets/fonts/OFL.txt "$pkgdir/usr/share/licenses/$pkgname/Bitcount-OFL.txt"
+  install -Dm644 "$startdir/oma-easel.png" "$pkgdir/usr/share/icons/hicolor/512x512/apps/oma-easel.png"
+  install -Dm644 "$startdir/oma-easel.desktop" "$pkgdir/usr/share/applications/oma-easel.desktop"
+}

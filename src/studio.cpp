@@ -1,6 +1,8 @@
 #include "studio.h"
 
 #include <QClipboard>
+#include <QCoreApplication>
+#include <QSaveFile>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
@@ -32,15 +34,44 @@ Studio::Studio(const Paths &paths, const Options &options, QObject *parent)
     // Ticks the elapsed time shown for running generation.
     m_clock.setInterval(1000);
     connect(&m_clock, &QTimer::timeout, this, &Studio::activityChanged);
+    // The companion bar widget reads this to show what's generating.
+    connect(this, &Studio::activityChanged, this, &Studio::writeStatus);
 
     const QString current = m_library.currentSlug();
     const QStringList slugs = m_library.slugs();
     loadTheme(slugs.contains(current) ? current : slugs.value(0));
+    writeStatus();
 }
 
 Studio::~Studio() {
     stopJobs();
     endPreview();
+    QFile::remove(m_paths.status);
+}
+
+// A small public contract with the companion plugin: whether the app is
+// open, and what each running batch is doing. Written atomically; the pid
+// lets a reader ignore a file left behind by a crash.
+void Studio::writeStatus() const {
+    if (m_paths.status.isEmpty())
+        return;
+    int pending = 0, total = 0;
+    for (const QVariant &item : activity()) {
+        pending += item.toMap().value("pending").toInt();
+        total += item.toMap().value("total").toInt();
+    }
+    const QJsonObject status{{"pid", QCoreApplication::applicationPid()},
+                             {"theme", m_theme.slug},
+                             {"generating", pending},
+                             {"total", total},
+                             {"batches", QJsonArray::fromVariantList(activity())},
+                             {"updatedAt", QDateTime::currentDateTime().toString(Qt::ISODate)}};
+    QDir().mkpath(QFileInfo(m_paths.status).absolutePath());
+    QSaveFile file(m_paths.status);
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(QJsonDocument(status).toJson(QJsonDocument::Compact));
+        file.commit();
+    }
 }
 
 // The saved choice when it's ready, else the first that is, so a missing

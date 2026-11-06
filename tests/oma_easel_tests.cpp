@@ -382,6 +382,14 @@ private slots:
         studio.generate();
         QVERIFY(studio.busy());
         QCOMPARE(studio.activity().size(), 1);
+        // The status file the companion plugin reads says what's running.
+        {
+            QFile status(paths.status);
+            QVERIFY(status.open(QIODevice::ReadOnly));
+            const QJsonObject json = QJsonDocument::fromJson(status.readAll()).object();
+            QCOMPARE(json.value("generating").toInt(), 2);
+            QCOMPARE(json.value("batches").toArray().first().toObject().value("theme").toString(), QString("nord"));
+        }
         // The field clears once the run starts; the batch keeps the scene.
         QVERIFY(studio.scene().isEmpty());
         QCOMPARE(studio.batchScene(), QString("green hills"));

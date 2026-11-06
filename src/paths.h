@@ -13,6 +13,7 @@ struct Paths {
     QString data;              // ~/.local/share/oma-easel, for kept lossless masters
     QString codexImages;       // ~/.codex/generated_images
     QString settings;          // ~/.config/oma-easel/settings.json
+    QString status;            // $XDG_RUNTIME_DIR/oma-easel/status.json, read by the companion plugin
 
     static Paths defaults();
     // Moves data from before the rename (~/.cache/easel, ~/.local/share/easel,

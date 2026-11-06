@@ -77,11 +77,26 @@ oma-easel keep ~/.cache/oma-easel/kanagawa/<batch>/candidate-2.png
 
 The export size comes from `hyprctl monitors`: the widest landscape monitor's shape, large enough to fill every landscape monitor. Portrait monitors show a center crop.
 
+## Install
+
+```sh
+omarchy pkg aur add oma-easel
+```
+
+Optional: the [bar widget](https://github.com/lutzlstein/oma-easel-plugin) opens Oma Easel and shows what's generating.
+
+```sh
+omarchy plugin add https://github.com/lutzlstein/oma-easel-plugin --enable
+```
+
+While it's open, the app writes `$XDG_RUNTIME_DIR/oma-easel/status.json` (its pid, the theme, and how many images are generating) for the widget to read.
+
 ## Build
 
 ```sh
 bin/build      # build/oma-easel
 bin/test       # Qt Test, offscreen
+bin/install    # build the package locally and install it (asks for your password)
 ```
 
 Needs `qt6-base`, `qt6-declarative`, `imagemagick`, and optionally `codex`.

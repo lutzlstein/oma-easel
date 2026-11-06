@@ -172,6 +172,7 @@ private:
     QList<Candidate> candidatesFor(const QString &batch) const;
     void previewDecided(bool keep);
     QHash<QString, QString> keptCandidates() const;
+    void writeStatus() const;
 
     void pickBackend();
 

@@ -27,6 +27,7 @@ Paths Paths::defaults() {
     paths.data = xdg("XDG_DATA_HOME", "/.local/share") + "/oma-easel";
     paths.codexImages = codexHome + "/generated_images";
     paths.settings = config + "/oma-easel/settings.json";
+    paths.status = qEnvironmentVariable("XDG_RUNTIME_DIR", QDir::tempPath()) + "/oma-easel/status.json";
     return paths;
 }
 
@@ -74,5 +75,6 @@ Paths Paths::underRoot(const QString &root) {
     paths.data = root + "/data/oma-easel";
     paths.codexImages = root + "/codex/generated_images";
     paths.settings = root + "/config/oma-easel/settings.json";
+    paths.status = root + "/run/oma-easel/status.json";
     return paths;
 }

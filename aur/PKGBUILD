@@ -1,0 +1,34 @@
+# AUR package: builds a tagged release of https://github.com/lutzlstein/oma-easel.
+# Update pkgver and sha256sums for each release (updpkgsums), then
+# makepkg --printsrcinfo > .SRCINFO before pushing to the AUR.
+pkgname=oma-easel
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Generate new backgrounds for your Omarchy themes'
+arch=('x86_64' 'aarch64')
+url='https://github.com/lutzlstein/oma-easel'
+license=('MIT' 'OFL-1.1')
+depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'imagemagick' 'xdg-desktop-portal' 'libsecret' 'hyprland')
+optdepends=('codex: generate with your ChatGPT login through Codex')
+makedepends=('gcc' 'make')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname-$pkgver"
+  ./bin/build
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  ./bin/test
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 build/oma-easel "$pkgdir/usr/bin/oma-easel"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 src/assets/fonts/OFL.txt "$pkgdir/usr/share/licenses/$pkgname/Bitcount-OFL.txt"
+  install -Dm644 pkgbuild/oma-easel.png "$pkgdir/usr/share/icons/hicolor/512x512/apps/oma-easel.png"
+  install -Dm644 pkgbuild/oma-easel.desktop "$pkgdir/usr/share/applications/oma-easel.desktop"
+}
