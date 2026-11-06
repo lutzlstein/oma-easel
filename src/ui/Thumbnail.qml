@@ -8,7 +8,9 @@ Rectangle {
     property bool chosen: false
     property bool dimmed: false
     property string caption
+    property bool removable: false
     signal clicked()
+    signal removeRequested()
     readonly property var s: theme.style
 
     radius: theme.radius
@@ -33,6 +35,16 @@ Rectangle {
         radius: Math.min(3, theme.radius)
         color: thumb.s.background
         OText { id: label; anchors.centerIn: parent; text: thumb.caption }
+    }
+    // Backgrounds easel added get a remove button on hover.
+    OButton {
+        visible: thumb.removable && hover.hovered
+        anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 4
+        text: "×"
+        solid: true
+        topPadding: 0; bottomPadding: 0; leftPadding: 6; rightPadding: 6
+        implicitHeight: 20
+        onClicked: thumb.removeRequested()
     }
     HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }
     TapHandler { onTapped: thumb.clicked() }

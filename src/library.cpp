@@ -191,6 +191,43 @@ bool Library::exportWebp(const QString &source, const QString &destination, cons
     return true;
 }
 
+QHash<QString, QString> Library::addedBackgrounds(const QString &themeSlug) const {
+    QHash<QString, QString> added;
+    const QDir masters(m_paths.data + "/" + themeSlug);
+    for (const QString &name : masters.entryList({"*.json"}, QDir::Files)) {
+        QFile file(masters.filePath(name));
+        if (!file.open(QIODevice::ReadOnly))
+            continue;
+        const QString exported = QJsonDocument::fromJson(file.readAll()).object().value("exported").toString();
+        if (!exported.isEmpty())
+            added.insert(exported, masters.filePath(QFileInfo(name).completeBaseName() + ".png"));
+    }
+    return added;
+}
+
+// Only backgrounds easel added can be removed, and they go to the trash
+// rather than being deleted, so a mistake can be undone from the file manager.
+bool Library::remove(const QString &exported, const QString &themeSlug, QString *error) const {
+    const QHash<QString, QString> added = addedBackgrounds(themeSlug);
+    if (!added.contains(exported)) {
+        if (error)
+            *error = QFileInfo(exported).fileName() + " wasn't added by easel, so easel won't remove it.";
+        return false;
+    }
+    const QString master = added.value(exported);
+    const QString sidecar = QFileInfo(master).absolutePath() + "/" + QFileInfo(master).completeBaseName() + ".json";
+    for (const QString &path : {exported, master, sidecar}) {
+        if (!QFileInfo::exists(path))
+            continue;
+        if (!QFile::moveToTrash(path) && !QFile::remove(path)) {
+            if (error)
+                *error = "Could not move " + path + " to the trash.";
+            return false;
+        }
+    }
+    return true;
+}
+
 QJsonObject Library::Kept::toJson() const {
     return {{"master", master}, {"sidecar", sidecar}, {"exported", exported}};
 }

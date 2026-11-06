@@ -67,12 +67,40 @@ QVariantList Studio::palette() const {
 }
 
 QVariantList Studio::backgrounds() const {
+    const QHash<QString, QString> added = m_store.addedBackgrounds(m_theme.slug);
     QVariantList list;
     for (const QString &path : m_theme.backgrounds)
         list.append(QVariantMap{{"path", path},
                                 {"name", QFileInfo(path).fileName()},
-                                {"selected", m_references.contains(path)}});
+                                {"selected", m_references.contains(path)},
+                                {"easel", added.contains(path)}});
     return list;
+}
+
+// Takes a background easel added out of the theme's cycle. If the desktop is
+// showing it, the desktop moves to another of the theme's backgrounds first.
+void Studio::removeBackground(const QString &path) {
+    const QString currentLink = m_options.preview.currentBackgroundLink.isEmpty()
+                                    ? QDir::homePath() + "/.local/state/omarchy/current/background"
+                                    : m_options.preview.currentBackgroundLink;
+    const bool showing = QFileInfo(currentLink).symLinkTarget() == path;
+    QString error;
+    if (!m_store.remove(path, m_theme.slug, &error)) {
+        setMessage(error);
+        return;
+    }
+    m_references.removeAll(path);
+    for (Candidate &candidate : m_candidates)
+        if (candidate.keptAs == path) {
+            candidate.state = "ready";
+            candidate.keptAs.clear();
+        }
+    reloadBackgrounds();
+    if (showing && !m_theme.backgrounds.isEmpty())
+        m_preview.setBackground(m_theme.backgrounds.first());
+    emit candidatesChanged();
+    reloadHistory();
+    setMessage(tr("Removed %1 from %2. It's in the trash if you want it back.").arg(QFileInfo(path).fileName(), m_theme.name));
 }
 
 // References that aren't the theme's backgrounds: candidates from this or

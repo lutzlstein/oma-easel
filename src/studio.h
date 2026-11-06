@@ -103,6 +103,7 @@ public:
     Q_INVOKABLE void vary(int index, const QString &change = {});
     Q_INVOKABLE void preview(int index);
     Q_INVOKABLE void endPreview();
+    Q_INVOKABLE void removeBackground(const QString &path);
     Q_INVOKABLE void openBatch(const QString &batch, const QString &select = {});
     Q_INVOKABLE void copyPrompt();
     Q_INVOKABLE void copyReferencePaths();

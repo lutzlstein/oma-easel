@@ -20,7 +20,7 @@
 #include "themelibrary.h"
 
 namespace {
-const QStringList commands{"themes", "theme", "screens", "backends", "generate", "prompt", "import", "keep", "help"};
+const QStringList commands{"themes", "theme", "screens", "backends", "generate", "prompt", "import", "keep", "remove", "help"};
 
 QTextStream &out() {
     static QTextStream stream(stdout);
@@ -150,9 +150,10 @@ int theme(const QStringList &arguments, const Paths &paths) {
     out() << info->name << " (" << info->slug << ")\n\nColors:\n";
     for (auto it = info->colors.begin(); it != info->colors.end(); ++it)
         out() << "  " << it.key() << " " << it.value() << "\n";
-    out() << "\nBackgrounds:\n";
+    const auto added = Library(paths).addedBackgrounds(info->slug);
+    out() << "\nBackgrounds (* added by easel):\n";
     for (int i = 0; i < info->backgrounds.size(); ++i)
-        out() << "  " << i + 1 << ". " << info->backgrounds.at(i) << "\n";
+        out() << (added.contains(info->backgrounds.at(i)) ? "* " : "  ") << i + 1 << ". " << info->backgrounds.at(i) << "\n";
     out() << "\nNew backgrounds go in " << info->userBackgroundDirectory << "\n" << Qt::flush;
     return 0;
 }
@@ -384,6 +385,33 @@ int keep(const QStringList &arguments, const Paths &paths) {
 }
 
 // No arguments, or "open", means the window; everything else is a command.
+namespace {
+int remove(const QStringList &arguments, const Paths &paths) {
+    QCommandLineParser parser;
+    parser.addPositionalArgument("background", "A background easel added: its path, file name, or number in `easel theme`.");
+    parser.addOption({"theme", "The theme it belongs to; the current theme when left out.", "theme"});
+    QString error;
+    if (!parse(parser, arguments, &error))
+        return failure(error);
+    const QString background = parser.positionalArguments().value(0);
+    if (background.isEmpty())
+        return failure("Give the background to remove.");
+    const auto info = loadTheme(ThemeLibrary(paths), parser.value("theme"), &error);
+    if (!info)
+        return failure(error);
+    const QString path = resolveReference(background, *info);
+    if (path.isEmpty())
+        return failure(QString("No %1 background matches \"%2\".").arg(info->name, background));
+    if (!Library(paths).remove(path, info->slug, &error))
+        return failure(error);
+    if (parser.isSet("json"))
+        printJson(QJsonObject{{"removed", path}, {"theme", info->slug}});
+    else
+        out() << "Moved " << path << " and its master to the trash.\n" << Qt::flush;
+    return 0;
+}
+}
+
 bool Cli::handles(const QStringList &arguments) {
     return arguments.size() >= 2 && arguments.at(1) != "open";
 }
@@ -402,7 +430,9 @@ QString Cli::usage() {
            "  import <file>... [--theme ...] [--prompt \"...\"]\n"
            "                         Add images made elsewhere as candidates\n"
            "  keep <candidate> [--name \"...\"]\n"
-           "                         Keep a candidate as a background for its theme\n\n"
+           "                         Keep a candidate as a background for its theme\n"
+           "  remove <background> [--theme ...]\n"
+           "                         Move a background easel added to the trash\n\n"
            "Every command takes --json. Run `easel <command> --help` for its options.\n";
 }
 
@@ -428,6 +458,8 @@ int Cli::run(const QStringList &arguments, const Paths &paths) {
         return import(rest, paths);
     if (command == "keep")
         return keep(rest, paths);
+    if (command == "remove")
+        return remove(rest, paths);
     if (command == "--version" || command == "-v") {
         out() << QCoreApplication::applicationName() << " " << QCoreApplication::applicationVersion() << "\n"
               << Qt::flush;

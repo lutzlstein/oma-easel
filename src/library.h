@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QJsonObject>
 #include <QStringList>
 #include <optional>
@@ -31,6 +32,11 @@ public:
 
     std::optional<Kept> keep(const QString &candidate, const ThemeInfo &theme, const Target &target,
                              const QString &name, QString *error) const;
+
+    // Backgrounds easel added to a theme: export path -> master path.
+    QHash<QString, QString> addedBackgrounds(const QString &themeSlug) const;
+    // Moves an added background, its master, and its sidecar to the trash.
+    bool remove(const QString &exported, const QString &themeSlug, QString *error) const;
 
     static QString slugify(const QString &text, int maxWords = 5);
     static int nextNumber(const QStringList &fileNames);

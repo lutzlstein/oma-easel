@@ -46,6 +46,8 @@ Candidates wait in `~/.cache/easel/<theme>/<batch>/` until kept.
 
 Generation keeps running when you switch themes; the header shows what's running for which theme and for how long, and clicking it goes back to that batch. Candidates stay in the history drawer whether or not you keep them.
 
+Backgrounds easel added are marked in the reference strip; hover one and click × to remove it from the theme. It and its master go to the trash, and if it's on the desktop, the desktop switches to another of the theme's backgrounds. Backgrounds easel didn't add can't be removed.
+
 ## Commands
 
 ```
@@ -59,6 +61,8 @@ easel prompt [theme] --prompt "…" [--ref …]
 easel import <file>… [--theme …] [--prompt "…"] [--source "…"]
                                      Add images made elsewhere as candidates
 easel keep <candidate> [--name "…"]
+easel remove <background> [--theme …]
+                                     Move a background easel added to the trash
 ```
 
 Every command takes `--json` and exits 0 on success or 1 with the reason on stderr. `--ref` accepts a file path, a background file name, or its number in `easel theme`.

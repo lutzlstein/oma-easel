@@ -26,7 +26,7 @@ ApplicationWindow {
     property bool quitting: false
     function quitNow() { quitting = true; Qt.quit() }
     readonly property bool typing: sceneField.activeFocus || varyField.activeFocus
-    readonly property bool overlayOpen: help.visible || quitDialog.visible || varyCard.visible
+    readonly property bool overlayOpen: help.visible || quitDialog.visible || varyCard.visible || removeCard.visible
 
     function clampSelection() {
         selected = Math.max(0, Math.min(selected, studio.candidates.length - 1))
@@ -92,6 +92,7 @@ ApplicationWindow {
         onActivated: {
             if (help.visible) help.close()
             else if (quitDialog.visible) quitDialog.close()
+            else if (removeCard.visible) removeCard.close()
             else if (history.visible) history.close()
             else if (studio.busy) studio.cancel()
             else grid.forceActiveFocus()
@@ -205,7 +206,10 @@ ApplicationWindow {
                         path: modelData.path
                         chosen: modelData.selected
                         dimmed: studio.references.length > 0 && !modelData.selected
+                        caption: modelData.easel ? qsTr("easel") : ""
+                        removable: modelData.easel
                         onClicked: studio.toggleReference(modelData.path)
+                        onRemoveRequested: { removeCard.path = modelData.path; removeCard.open() }
                     }
                     footer: Row {
                         height: references.height
@@ -590,6 +594,27 @@ ApplicationWindow {
                     OText { Layout.preferredWidth: 80 * s.spacing; text: modelData[0]; color: s.accent }
                     OText { text: modelData[1] }
                 }
+            }
+        }
+    }
+
+    Card {
+        id: removeCard
+        property string path
+        ColumnLayout {
+            spacing: 14 * s.spacing
+            OText { text: qsTr("Remove this background?"); scale: 1.333 }
+            OText {
+                text: qsTr("%1 leaves %2's background cycle. It and its master go to the trash, and the candidate stays in history.")
+                      .arg(removeCard.path.split("/").pop()).arg(studio.themeName)
+                wrapMode: Text.Wrap
+                Layout.maximumWidth: 520 * s.spacing
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                spacing: win.gap
+                OButton { text: qsTr("Cancel"); onClicked: removeCard.close() }
+                OButton { text: qsTr("Remove"); primary: true; onClicked: { studio.removeBackground(removeCard.path); removeCard.close() } }
             }
         }
     }

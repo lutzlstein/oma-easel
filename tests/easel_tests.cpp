@@ -389,6 +389,54 @@ private slots:
         QCOMPARE(studio.history().first().toMap().value("scene").toString(), QString("green hills"));
     }
 
+    void removesOnlyWhatEaselAdded()
+    {
+        if (QStandardPaths::findExecutable("magick").isEmpty())
+            QSKIP("ImageMagick is not installed.");
+        QTemporaryDir dir;
+        const Paths paths = Paths::underRoot(dir.path());
+        write(paths.stockThemes + "/nord/colors.toml", "accent = \"#81a1c1\"\n");
+        write(paths.stockThemes + "/nord/backgrounds/1-fjord.png", "x");
+        write(paths.currentThemeName, "nord\n");
+        write(dir.filePath("previous.png"), "x");
+        const QString setLog = dir.filePath("set.log");
+        write(dir.filePath("bg-set"), "#!/bin/sh\necho \"$1\" >> '" + setLog.toUtf8() + "'\n");
+        QVERIFY(QFile::setPermissions(dir.filePath("bg-set"), QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+
+        Studio::Options options;
+        options.detectBackends = false;
+        options.target = Target{120, 50, {}};
+        options.preview.setBackground = dir.filePath("bg-set");
+        options.preview.currentBackgroundLink = dir.filePath("background");
+        Studio studio(paths, options);
+        QImage image(60, 25, QImage::Format_RGB32);
+        image.fill(Qt::yellow);
+        QVERIFY(image.save(dir.filePath("c.png")));
+        studio.setScene("sunny field");
+        studio.importFiles({dir.filePath("c.png")});
+        studio.keep(0);
+        const QString exported = studio.candidates().first().toMap().value("keptAs").toString();
+        QVERIFY(QFileInfo::exists(exported));
+        QVERIFY(QFile::link(exported, dir.filePath("background")));
+
+        // The stock background can't be removed; the added one can.
+        studio.removeBackground(paths.stockThemes + "/nord/backgrounds/1-fjord.png");
+        QVERIFY(QFileInfo::exists(paths.stockThemes + "/nord/backgrounds/1-fjord.png"));
+        QVERIFY(studio.message().contains("wasn't added by easel"));
+        QVERIFY(studio.backgrounds().first().toMap().value("easel").toBool());
+
+        studio.removeBackground(exported);
+        QVERIFY(!QFileInfo::exists(exported));
+        QVERIFY(QDir(paths.data + "/nord").entryList(QDir::Files).isEmpty());
+        QCOMPARE(studio.backgrounds().size(), 1);
+        QCOMPARE(studio.candidates().first().toMap().value("state").toString(), QString("ready"));
+        // It was on the desktop, so the desktop moved to the remaining background.
+        QTRY_VERIFY(QFileInfo(setLog).size() > 0);
+        QFile log(setLog);
+        QVERIFY(log.open(QIODevice::ReadOnly));
+        QVERIFY(QString::fromUtf8(log.readAll()).trimmed().endsWith("1-fjord.png"));
+    }
+
     void keepStoresMasterAndExport()
     {
         if (QStandardPaths::findExecutable("magick").isEmpty())
