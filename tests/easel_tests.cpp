@@ -375,6 +375,9 @@ private slots:
         studio.generate();
         QVERIFY(studio.busy());
         QCOMPARE(studio.activity().size(), 1);
+        // The field clears once the run starts; the batch keeps the scene.
+        QVERIFY(studio.scene().isEmpty());
+        QCOMPARE(studio.batchScene(), QString("green hills"));
 
         // Switching away leaves the jobs running; they still land in nord's history.
         studio.loadTheme("gruvbox");

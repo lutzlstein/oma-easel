@@ -2,6 +2,7 @@
   "Generating %n candidate(s)…": { "one": "Generating %n candidate…", "other": "Generating %n candidates…" },
   "Copied %n reference path(s).": { "one": "Copied %n reference path.", "other": "Copied %n reference paths." },
   "Imported %n image(s).": { "one": "Imported %n image.", "other": "Imported %n images." },
+  "Generate %n candidate(s) for %1?": { "one": "Generate %n candidate for %1?", "other": "Generate %n candidates for %1?" },
   "%n reference(s)": { "one": "%n reference", "other": "%n references" },
   "%n style reference(s)": { "one": "%n style reference", "other": "%n style references" },
   "%n candidate(s) haven't been kept and will be lost.": { "one": "%n candidate hasn't been kept and will be lost.", "other": "%n candidates haven't been kept and will be lost." }

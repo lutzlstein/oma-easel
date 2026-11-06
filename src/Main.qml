@@ -28,6 +28,7 @@ ApplicationWindow {
     function quitNow() { quitting = true; Qt.quit() }
     readonly property bool typing: sceneField.activeFocus || varyField.activeFocus
     readonly property bool overlayOpen: help.visible || quitDialog.visible || varyCard.visible || removeCard.visible
+                                        || runCard.visible || stopCard.visible
 
     function clampSelection() {
         selected = Math.max(0, Math.min(selected, studio.candidates.length - 1))
@@ -47,6 +48,19 @@ ApplicationWindow {
     function canUse(index) {
         const c = studio.candidates[index]
         return c !== undefined && (c.state === "ready" || c.state === "kept")
+    }
+    // Runs and stops both ask first: a run spends image credits, a stop throws
+    // work away. Manual mode only builds a prompt, so it doesn't ask.
+    function requestGenerate() {
+        if (studio.busy)
+            return
+        if (studio.scene.trim().length === 0) { studio.generate(); return }
+        if (studio.manual) { studio.generate(); return }
+        runCard.open()
+    }
+    function requestStop() {
+        if (studio.busy)
+            stopCard.open()
     }
     function askVary(index) {
         if (!canUse(index))
@@ -74,7 +88,7 @@ ApplicationWindow {
     readonly property bool keysLive: !typing && !overlayOpen
     Shortcut { sequence: "?"; enabled: !win.typing; context: Qt.ApplicationShortcut; onActivated: help.visible ? help.close() : help.open() }
     Shortcut { sequence: "Q"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.requestQuit() }
-    Shortcut { sequence: "Space"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: studio.generate() }
+    Shortcut { sequence: "Space"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.requestGenerate() }
     Shortcut { sequences: ["Return", "Enter"]; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: studio.keep(win.selected) }
     Shortcut { sequence: "D"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: studio.discard(win.selected) }
     Shortcut { sequence: "V"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.askVary(win.selected) }
@@ -95,7 +109,7 @@ ApplicationWindow {
             else if (quitDialog.visible) quitDialog.close()
             else if (removeCard.visible) removeCard.close()
             else if (history.visible) history.close()
-            else if (studio.busy) studio.cancel()
+            else if (studio.busy) win.requestStop()
             else grid.forceActiveFocus()
         }
     }
@@ -265,7 +279,7 @@ ApplicationWindow {
                     placeholderText: qsTr("Describe a scene: a quiet harbor at dawn, fishing boats, autumn trees")
                     text: studio.scene
                     onTextEdited: studio.scene = text
-                    onAccepted: { studio.generate(); grid.forceActiveFocus() }
+                    onAccepted: { grid.forceActiveFocus(); win.requestGenerate() }
                     Keys.onEscapePressed: grid.forceActiveFocus()
                 }
                 OText { text: qsTr("candidates"); muted: true; visible: !studio.manual }
@@ -280,13 +294,13 @@ ApplicationWindow {
                     keyHint: "space"
                     enabled: studio.scene.trim().length > 0 && !studio.busy
                     text: studio.manual ? qsTr("Make prompt") : qsTr("Generate")
-                    onClicked: { studio.generate(); grid.forceActiveFocus() }
+                    onClicked: { grid.forceActiveFocus(); win.requestGenerate() }
                 }
                 OButton {
                     visible: studio.busy
                     keyHint: "esc"
-                    text: qsTr("Cancel")
-                    onClicked: studio.cancel()
+                    text: qsTr("Stop")
+                    onClicked: win.requestStop()
                 }
             }
 
@@ -633,6 +647,65 @@ ApplicationWindow {
                 }
             }
         }
+    }
+
+    // A confirmation card: enter or space confirms, esc backs out.
+    component ConfirmCard: Card {
+        id: confirm
+        property string heading
+        property string detail
+        property string confirmLabel
+        property string backLabel: qsTr("Cancel")
+        signal confirmed()
+        onOpened: keys.forceActiveFocus()
+        onClosed: grid.forceActiveFocus()
+        ColumnLayout {
+            spacing: 14 * s.spacing
+            Item {
+                id: keys
+                focus: true
+                Keys.onPressed: (event) => {
+                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                        event.accepted = true
+                        confirm.close()
+                        confirm.confirmed()
+                    }
+                }
+            }
+            OText { text: confirm.heading; size: 1.333 }
+            OText {
+                visible: confirm.detail !== ""
+                text: confirm.detail
+                wrapMode: Text.Wrap
+                Layout.maximumWidth: 560 * s.spacing
+                muted: true
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                spacing: win.gap
+                OButton { keyHint: "esc"; text: confirm.backLabel; onClicked: confirm.close() }
+                OButton { keyHint: "enter"; text: confirm.confirmLabel; primary: true; onClicked: { confirm.close(); confirm.confirmed() } }
+            }
+        }
+    }
+
+    ConfirmCard {
+        id: runCard
+        heading: qsTr("Generate %n candidate(s) for %1?", "", studio.count).arg(studio.themeName)
+        detail: "“" + studio.scene.trim() + "”"
+                + (studio.references.length > 0 ? "\n" + qsTr("%n reference(s)", "", studio.references.length) : "")
+                + "\n" + qsTr("with %1").arg(studio.backend)
+        confirmLabel: qsTr("Generate")
+        onConfirmed: studio.generate()
+    }
+
+    ConfirmCard {
+        id: stopCard
+        heading: qsTr("Stop generating?")
+        detail: qsTr("Candidates still generating in this batch are lost. Finished ones stay.")
+        confirmLabel: qsTr("Stop")
+        backLabel: qsTr("Keep going")
+        onConfirmed: studio.cancel()
     }
 
     Card {

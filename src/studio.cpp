@@ -346,6 +346,10 @@ void Studio::generate() {
     }
     m_clock.start();
     emit activityChanged();
+    // The run is underway and its scene is shown with the batch, so the field
+    // clears for the next idea.
+    m_scene.clear();
+    emit sceneChanged();
     setMessage(tr("Generating %n candidate(s)…", "", m_count));
     emit candidatesChanged();
 }
