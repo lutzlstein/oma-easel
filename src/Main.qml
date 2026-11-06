@@ -26,7 +26,7 @@ ApplicationWindow {
     // and the close check below must not veto a quit that was already confirmed.
     property bool quitting: false
     function quitNow() { quitting = true; Qt.quit() }
-    readonly property bool typing: sceneField.activeFocus || varyField.activeFocus
+    readonly property bool typing: sceneField.activeFocus || varyField.activeFocus || (win.activeFocusItem instanceof TextInput)
     readonly property bool overlayOpen: help.visible || quitDialog.visible || varyCard.visible || removeCard.visible
                                         || runCard.visible || stopCard.visible
 
@@ -69,6 +69,12 @@ ApplicationWindow {
         varyCard.open()
     }
 
+    Component.onCompleted: {
+        if (screenshotOpen === "settings") settingsDrawer.open()
+        else if (screenshotOpen === "history") history.open()
+        else if (screenshotOpen === "help") help.open()
+    }
+
     Connections {
         target: studio
         function onCandidatesChanged() { win.clampSelection() }
@@ -95,6 +101,7 @@ ApplicationWindow {
     Shortcut { sequence: "R"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: if (win.canUse(win.selected)) studio.toggleReference(studio.candidates[win.selected].path) }
     Shortcut { sequence: "P"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: studio.preview(win.selected) }
     Shortcut { sequence: "H"; enabled: win.keysLive || history.visible; context: Qt.ApplicationShortcut; onActivated: history.visible ? history.close() : history.open() }
+    Shortcut { sequence: "S"; enabled: win.keysLive || settingsDrawer.visible; context: Qt.ApplicationShortcut; onActivated: settingsDrawer.visible ? settingsDrawer.close() : settingsDrawer.open() }
     Shortcut { sequence: "I"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: studio.pickImports() }
     Shortcut { sequence: "C"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: studio.copyPrompt() }
     Shortcut { sequence: "Left"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.move(-1) }
@@ -109,6 +116,7 @@ ApplicationWindow {
             else if (quitDialog.visible) quitDialog.close()
             else if (removeCard.visible) removeCard.close()
             else if (history.visible) history.close()
+            else if (settingsDrawer.visible) settingsDrawer.close()
             else if (studio.busy) win.requestStop()
             else grid.forceActiveFocus()
         }
@@ -142,14 +150,21 @@ ApplicationWindow {
                         anchors.verticalCenter: parent.verticalCenter
                     }
                     // The wordmark is set in Bitcount at weight 400 (SIL OFL,
-                    // bundled in src/assets/fonts); the rest of the window uses
-                    // the system font.
-                    OText {
-                        text: Qt.application.displayName
-                        font.family: wordmarkFont.font.family
-                        font.weight: 400
-                        font.pixelSize: Math.round(26 * s.spacing)
+                    // bundled in src/assets/fonts), one word per line; the rest
+                    // of the window uses the system font.
+                    Column {
                         anchors.verticalCenter: parent.verticalCenter
+                        spacing: -3 * s.spacing
+                        Repeater {
+                            model: Qt.application.displayName.split(" ")
+                            OText {
+                                required property string modelData
+                                text: modelData
+                                font.family: wordmarkFont.font.family
+                                font.weight: 400
+                                font.pixelSize: Math.round(18 * s.spacing)
+                            }
+                        }
                     }
                 }
 
@@ -190,8 +205,10 @@ ApplicationWindow {
 
                 OText {
                     text: studio.manual ? qsTr("manual · copy the prompt to any image platform")
-                                        : qsTr("generating with %1").arg(studio.backend)
+                                        : qsTr("making images with %1").arg(studio.backendLabel)
                     color: studio.manual ? s.accent : Qt.alpha(s.text, 0.55)
+                    TapHandler { onTapped: settingsDrawer.open() }
+                    HoverHandler { cursorShape: Qt.PointingHandCursor }
                 }
                 OText { text: studio.exportSize; muted: true }
                 // What the image agent is doing, for every theme. Click to go
@@ -463,9 +480,18 @@ ApplicationWindow {
                 }
             }
 
-            // Status and the keys that matter most.
+            // Attribution, settings, status, and the keys that matter most.
             RowLayout {
                 Layout.fillWidth: true
+                spacing: 14 * s.spacing
+                OText {
+                    text: qsTr("by %1").arg(appAuthor)
+                    muted: !attributionHover.hovered
+                    font.underline: attributionHover.hovered
+                    HoverHandler { id: attributionHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { onTapped: Qt.openUrlExternally(appRepository) }
+                }
+                OButton { keyHint: "s"; text: qsTr("models & export"); onClicked: settingsDrawer.open() }
                 OText { Layout.fillWidth: true; text: studio.message; elide: Text.ElideRight }
                 Row {
                     spacing: 14 * s.spacing
@@ -489,6 +515,138 @@ ApplicationWindow {
         border.color: s.border
         width: label.implicitWidth + 12; height: label.implicitHeight + 6
         OText { id: label; anchors.centerIn: parent }
+    }
+
+    // Models & export: which image model makes candidates, how to connect
+    // it, and how kept backgrounds are written.
+    Drawer {
+        id: settingsDrawer
+        edge: Qt.LeftEdge
+        width: Math.min(win.width * 0.45, 560 * s.spacing)
+        height: win.height
+        onOpened: studio.refreshBackends()
+        Overlay.modal: Rectangle { color: Qt.alpha(s.background, 0.4) }
+        background: Rectangle {
+            color: s.popupBackground
+            Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: s.border }
+        }
+
+        ScrollView {
+            anchors.fill: parent
+            anchors.margins: 18 * s.spacing
+            contentWidth: availableWidth
+            ColumnLayout {
+                width: parent.width
+                spacing: 12 * s.spacing
+
+                OText { text: qsTr("Models & export"); size: 1.333 }
+
+                OText { text: qsTr("Make images with"); muted: true; Layout.topMargin: 6 }
+                Repeater {
+                    model: studio.backends
+                    delegate: Rectangle {
+                        id: backendCard
+                        required property var modelData
+                        Layout.fillWidth: true
+                        implicitHeight: backendColumn.implicitHeight + 24 * s.spacing
+                        radius: theme.radius
+                        color: Qt.alpha(s.controlColor, modelData.active ? s.selectedFill : s.normalFill)
+                        border.width: modelData.active ? 2 : s.borderWidth
+                        border.color: modelData.active ? s.border : Qt.alpha(s.controlColor, s.normalBorderAlpha)
+                        ColumnLayout {
+                            id: backendColumn
+                            anchors.fill: parent
+                            anchors.margins: 12 * s.spacing
+                            spacing: 8 * s.spacing
+                            RowLayout {
+                                Layout.fillWidth: true
+                                OText { text: backendCard.modelData.label; Layout.fillWidth: true }
+                                OText { visible: backendCard.modelData.active; text: qsTr("in use"); color: s.accent }
+                                OButton {
+                                    visible: !backendCard.modelData.active
+                                    enabled: backendCard.modelData.available
+                                    text: qsTr("use")
+                                    onClicked: studio.chooseBackend(backendCard.modelData.name)
+                                }
+                            }
+                            OText { Layout.fillWidth: true; text: backendCard.modelData.detail; wrapMode: Text.Wrap; muted: true }
+                            // API backends: the model id and the key.
+                            RowLayout {
+                                visible: backendCard.modelData.keyed
+                                Layout.fillWidth: true
+                                OText { text: qsTr("model"); muted: true; Layout.preferredWidth: 60 * s.spacing }
+                                OField {
+                                    Layout.fillWidth: true
+                                    text: backendCard.modelData.model
+                                    onEditingFinished: {
+                                        if (backendCard.modelData.name === "openai") studio.settings.openaiModel = text
+                                        else studio.settings.geminiModel = text
+                                        studio.refreshBackends()
+                                    }
+                                }
+                            }
+                            RowLayout {
+                                visible: backendCard.modelData.keyed && !backendCard.modelData.keyFromEnvironment
+                                Layout.fillWidth: true
+                                OText { text: qsTr("key"); muted: true; Layout.preferredWidth: 60 * s.spacing }
+                                OField {
+                                    id: keyField
+                                    Layout.fillWidth: true
+                                    echoMode: TextInput.Password
+                                    placeholderText: backendCard.modelData.available ? qsTr("saved in the keyring · paste to replace")
+                                                                                     : qsTr("paste an API key")
+                                    onAccepted: { studio.saveKey(backendCard.modelData.name, text); text = "" }
+                                }
+                                OButton { text: qsTr("save"); enabled: keyField.text.length > 0; onClicked: { studio.saveKey(backendCard.modelData.name, keyField.text); keyField.text = "" } }
+                                OButton { text: qsTr("forget"); visible: backendCard.modelData.available; onClicked: studio.forgetKey(backendCard.modelData.name) }
+                            }
+                        }
+                    }
+                }
+
+                OText { text: qsTr("Export kept backgrounds as"); muted: true; Layout.topMargin: 12 }
+                RowLayout {
+                    spacing: win.gap
+                    Repeater {
+                        model: [["webp", "WebP"], ["jpeg", "JPEG"], ["png", "PNG"]]
+                        OButton {
+                            required property var modelData
+                            text: modelData[1]
+                            primary: studio.settings.exportFormat === modelData[0]
+                            onClicked: studio.settings.exportFormat = modelData[0]
+                        }
+                    }
+                    OText { text: qsTr("quality"); muted: true; visible: studio.settings.exportFormat !== "png"; Layout.leftMargin: 8 }
+                    OStepper {
+                        visible: studio.settings.exportFormat !== "png"
+                        from: 40; to: 100
+                        value: studio.settings.exportQuality
+                        onModified: (value) => studio.settings.exportQuality = value > studio.settings.exportQuality
+                                    ? Math.min(100, studio.settings.exportQuality + 5) : Math.max(40, studio.settings.exportQuality - 5)
+                    }
+                }
+                OText {
+                    Layout.fillWidth: true
+                    text: qsTr("Sized to %1 for your screens, into %2's backgrounds.").arg(studio.exportSize).arg(studio.themeName)
+                    wrapMode: Text.Wrap
+                    muted: true
+                }
+
+                OText { text: qsTr("Also copy kept backgrounds for %1 to (optional)").arg(studio.themeName); muted: true; Layout.topMargin: 12 }
+                RowLayout {
+                    Layout.fillWidth: true
+                    OField {
+                        id: extraFolder
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("a folder, like a theme repo's backgrounds/")
+                        text: studio.extraExportFolder()
+                        onEditingFinished: studio.setExtraExportFolder(text)
+                        Connections { target: studio; function onThemeChanged() { extraFolder.text = studio.extraExportFolder() } }
+                    }
+                    OButton { text: qsTr("clear"); visible: extraFolder.text.length > 0; onClicked: { extraFolder.text = ""; studio.setExtraExportFolder("") } }
+                }
+            }
+        }
     }
 
     // Overlay cards use the shell's popup surface: popup background with the
@@ -622,6 +780,7 @@ ApplicationWindow {
                     ["r", qsTr("Use the selected candidate as a reference")],
                     ["p", qsTr("Preview on an empty workspace")],
                     ["h", qsTr("History of earlier batches")],
+                    ["s", qsTr("Models & export settings")],
                     ["← → ↑ ↓", qsTr("Move between candidates")],
                     ["/", qsTr("Type a scene")],
                     ["i", qsTr("Import images")],

@@ -13,25 +13,18 @@
 #include <algorithm>
 
 #include "codexgenerator.h"
+#include "keystore.h"
 #include "promptbuilder.h"
 
 Studio::Studio(const Paths &paths, const Options &options, QObject *parent)
-    : QObject(parent), m_paths(paths), m_options(options), m_library(paths), m_store(paths),
+    : QObject(parent), m_paths(paths), m_options(options), m_settings(paths.settings), m_library(paths), m_store(paths),
       m_preview(options.preview) {
     m_target = m_options.target ? *m_options.target : Screens::target(Screens::query());
 
-    if (!m_options.backend.isEmpty()) {
+    if (!m_options.backend.isEmpty())
         m_backend = m_options.backend;
-    } else if (m_options.detectBackends) {
-        const QList<BackendStatus> statuses = Backends::all(m_options.codex);
-        m_backend = Backends::preferred(statuses);
-        for (const BackendStatus &status : statuses)
-            if (status.name == m_backend)
-                m_backendDetail = status.detail;
-        // In manual mode, say why the generators were passed over.
-        if (m_backend == "manual")
-            m_backendDetail = statuses.first().detail;
-    }
+    else if (m_options.detectBackends)
+        refreshBackends();
 
     connect(&m_picker, &PortalFilePicker::picked, this, &Studio::importFiles);
     connect(&m_picker, &PortalFilePicker::failed, this, &Studio::setMessage);
@@ -48,6 +41,76 @@ Studio::Studio(const Paths &paths, const Options &options, QObject *parent)
 Studio::~Studio() {
     stopJobs();
     endPreview();
+}
+
+// The saved choice when it's ready, else the first that is, so a missing
+// login or key falls back instead of failing at Generate.
+void Studio::pickBackend() {
+    m_backend = Backends::preferred(m_statuses);
+    for (const BackendStatus &status : m_statuses)
+        if (status.name == m_settings.backend() && status.available)
+            m_backend = status.name;
+    m_backendDetail.clear();
+    for (const BackendStatus &status : m_statuses)
+        if (status.name == m_backend)
+            m_backendDetail = status.detail;
+    emit backendChanged();
+}
+
+void Studio::refreshBackends() {
+    m_statuses = Backends::all(m_options.codex);
+    pickBackend();
+}
+
+QVariantList Studio::backends() const {
+    QVariantList list;
+    for (const BackendStatus &status : m_statuses) {
+        const bool keyed = status.name == "openai" || status.name == "gemini";
+        list.append(QVariantMap{{"name", status.name},
+                                {"label", Backends::label(status.name)},
+                                {"available", status.available},
+                                {"detail", status.detail},
+                                {"active", status.name == m_backend},
+                                {"keyed", keyed},
+                                {"keyFromEnvironment", keyed && KeyStore::fromEnvironment(status.name)},
+                                {"model", status.name == "openai" ? m_settings.openaiModel()
+                                          : status.name == "gemini" ? m_settings.geminiModel() : QString()}});
+    }
+    return list;
+}
+
+void Studio::chooseBackend(const QString &name) {
+    for (const BackendStatus &status : m_statuses)
+        if (status.name == name && !status.available) {
+            setMessage(status.detail);
+            return;
+        }
+    m_settings.setBackend(name);
+    pickBackend();
+    setMessage(tr("Making images with %1.").arg(Backends::label(m_backend)));
+}
+
+void Studio::saveKey(const QString &provider, const QString &key) {
+    if (key.trimmed().isEmpty())
+        return;
+    QString error;
+    if (!KeyStore::set(provider, key, &error)) {
+        setMessage(error);
+        return;
+    }
+    refreshBackends();
+    setMessage(tr("Saved the %1 key to the keyring.").arg(Backends::label(provider)));
+}
+
+void Studio::forgetKey(const QString &provider) {
+    QString error;
+    if (!KeyStore::clear(provider, &error))
+        setMessage(error);
+    refreshBackends();
+}
+
+void Studio::setExtraExportFolder(const QString &folder) {
+    m_settings.setExtraExportFolder(m_theme.slug, folder);
 }
 
 QVariantList Studio::themes() const {
@@ -301,6 +364,7 @@ QJsonObject Studio::batchInfo(const QString &backend) const {
             {"prompt", buildPrompt()},
             {"references", QJsonArray::fromStringList(m_references)},
             {"backend", backend},
+            {"model", backend == "openai" ? m_settings.openaiModel() : backend == "gemini" ? m_settings.geminiModel() : QString()},
             {"theme", m_theme.slug},
             {"target", m_target.toJson()},
             {"createdAt", QDateTime::currentDateTime().toString(Qt::ISODate)}};
@@ -338,7 +402,12 @@ void Studio::generate() {
     for (int i = 0; i < m_count; ++i) {
         const QString path = Library::candidatePath(m_batch, i);
         m_candidates.append({path, "pending", {}, {}});
-        auto *generator = new CodexGenerator(m_options.codex, m_paths.codexImages, this);
+        Generator *generator = Backends::create(m_backend, m_settings, m_target, m_options.codex, m_paths.codexImages, this, &error);
+        if (!generator) {
+            m_candidates.last().state = "failed";
+            m_candidates.last().error = error;
+            continue;
+        }
         m_jobs.append({generator, m_theme.slug, m_batch, m_batchScene, path, m_count, QDateTime::currentDateTime()});
         connect(generator, &Generator::finished, this, [this, generator](const QString &) { jobEnded(generator, true, {}); });
         connect(generator, &Generator::failed, this, [this, generator](const QString &error) { jobEnded(generator, false, error); });
@@ -420,7 +489,9 @@ void Studio::keep(int index, const QString &name) {
     if (index < 0 || index >= m_candidates.size() || m_candidates.at(index).state != "ready")
         return;
     QString error;
-    const auto kept = m_store.keep(m_candidates.at(index).path, m_theme, m_target, name, &error);
+    const Library::ExportOptions options{m_settings.exportFormat(), m_settings.exportQuality(),
+                                         m_settings.extraExportFolder(m_theme.slug)};
+    const auto kept = m_store.keep(m_candidates.at(index).path, m_theme, m_target, name, &error, options);
     if (!kept) {
         setMessage(error);
         return;

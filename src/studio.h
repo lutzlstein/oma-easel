@@ -17,6 +17,7 @@
 #include "portalfilepicker.h"
 #include "previewsession.h"
 #include "screens.h"
+#include "settings.h"
 #include "themelibrary.h"
 
 // The window's state and actions: the loaded theme, the chosen references,
@@ -35,6 +36,11 @@ class Studio : public QObject {
     Q_PROPERTY(QString backend READ backend NOTIFY backendChanged)
     Q_PROPERTY(QString backendDetail READ backendDetail NOTIFY backendChanged)
     Q_PROPERTY(bool manual READ manual NOTIFY backendChanged)
+    Q_PROPERTY(QString backendLabel READ backendLabel NOTIFY backendChanged)
+    // Every way of making images, with whether it's ready and why:
+    // [{name, label, available, detail, active, keyed, keyFromEnvironment, model}].
+    Q_PROPERTY(QVariantList backends READ backends NOTIFY backendChanged)
+    Q_PROPERTY(QObject *settings READ settingsObject CONSTANT)
     Q_PROPERTY(QVariantList candidates READ candidates NOTIFY candidatesChanged)
     Q_PROPERTY(QString batchScene READ batchScene NOTIFY candidatesChanged)
     Q_PROPERTY(QString batchChange READ batchChange NOTIFY candidatesChanged)
@@ -79,6 +85,9 @@ public:
     QString backend() const { return m_backend; }
     QString backendDetail() const { return m_backendDetail; }
     bool manual() const { return m_backend == "manual"; }
+    QString backendLabel() const { return Backends::label(m_backend); }
+    QVariantList backends() const;
+    QObject *settingsObject() { return &m_settings; }
     QVariantList candidates() const;
     QString batchScene() const { return m_batchScene; }
     QString batchChange() const { return m_batchChange; }
@@ -95,6 +104,12 @@ public:
     bool anyRunning() const;
 
     Q_INVOKABLE void loadTheme(const QString &slug);
+    Q_INVOKABLE void chooseBackend(const QString &name);
+    Q_INVOKABLE void refreshBackends();
+    Q_INVOKABLE void saveKey(const QString &provider, const QString &key);
+    Q_INVOKABLE void forgetKey(const QString &provider);
+    Q_INVOKABLE QString extraExportFolder() const { return m_settings.extraExportFolder(m_theme.slug); }
+    Q_INVOKABLE void setExtraExportFolder(const QString &folder);
     Q_INVOKABLE void toggleReference(const QString &path);
     Q_INVOKABLE void generate();
     Q_INVOKABLE void cancel();
@@ -158,8 +173,12 @@ private:
     void previewDecided(bool keep);
     QHash<QString, QString> keptCandidates() const;
 
+    void pickBackend();
+
     Paths m_paths;
     Options m_options;
+    Settings m_settings;
+    QList<BackendStatus> m_statuses;
     ThemeLibrary m_library;
     Library m_store;
     Target m_target;

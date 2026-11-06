@@ -1,11 +1,18 @@
 #include <QDir>
 #include <QFile>
+#include <QBuffer>
 #include <QImage>
+#include <QImageReader>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QtTest>
 
+#include "apigenerators.h"
 #include "backends.h"
+#include "keystore.h"
+#include "settings.h"
 #include "codexgenerator.h"
 #include "library.h"
 #include "promptbuilder.h"
@@ -438,6 +445,133 @@ private slots:
         QFile log(setLog);
         QVERIFY(log.open(QIODevice::ReadOnly));
         QVERIFY(QString::fromUtf8(log.readAll()).trimmed().endsWith("1-fjord.png"));
+    }
+
+    void openaiSizesFollowTheRules()
+    {
+        QCOMPARE(OpenAIGenerator::sizeFor(Target{3440, 1440, {}}), QSize(3440, 1440));
+        // Too wide, too big, too small: each is brought inside the limits.
+        const QSize wide = OpenAIGenerator::sizeFor(Target{5120, 1440, {}});
+        QVERIFY(double(wide.width()) / wide.height() <= 3.0);
+        QVERIFY(wide.width() % 16 == 0 && wide.height() % 16 == 0);
+        const QSize big = OpenAIGenerator::sizeFor(Target{7680, 4320, {}});
+        QVERIFY(big.width() <= 3840 && big.width() * big.height() <= 8294400);
+        const QSize small = OpenAIGenerator::sizeFor(Target{640, 360, {}});
+        QVERIFY(small.width() * small.height() >= 655360 - 2 * 16 * 1200);
+    }
+
+    void apiResponsesDecode()
+    {
+        QImage image(8, 4, QImage::Format_RGB32);
+        image.fill(Qt::magenta);
+        QByteArray png;
+        QBuffer buffer(&png);
+        buffer.open(QIODevice::WriteOnly);
+        image.save(&buffer, "PNG");
+        const QString b64 = QString::fromLatin1(png.toBase64());
+
+        QString error;
+        const QJsonObject openai{{"data", QJsonArray{QJsonObject{{"b64_json", b64}}}}};
+        QCOMPARE(QImage::fromData(OpenAIGenerator::decode(openai, &error)).size(), QSize(8, 4));
+        const QJsonObject gemini{{"candidates", QJsonArray{QJsonObject{{"content", QJsonObject{{"parts", QJsonArray{
+            QJsonObject{{"text", "here you go"}}, QJsonObject{{"inlineData", QJsonObject{{"mimeType", "image/png"}, {"data", b64}}}}}}}}}}}};
+        QCOMPARE(QImage::fromData(GeminiGenerator::decode(gemini, &error)).size(), QSize(8, 4));
+        QVERIFY(GeminiGenerator::decode(QJsonObject{{"promptFeedback", QJsonObject{{"blockReason", "SAFETY"}}}}, &error).isEmpty());
+        QVERIFY(error.contains("SAFETY"));
+    }
+
+    void geminiRequestAsksForImageOnly()
+    {
+        QTemporaryDir dir;
+        QImage image(4, 4, QImage::Format_RGB32);
+        image.fill(Qt::black);
+        QVERIFY(image.save(dir.filePath("ref.png")));
+        const QJsonObject body = GeminiGenerator::body("a lake", {dir.filePath("ref.png")}, Target{3440, 1440, {}});
+        const QJsonObject config = body.value("generationConfig").toObject();
+        QCOMPARE(config.value("responseModalities").toArray(), QJsonArray{"IMAGE"});
+        QCOMPARE(config.value("imageConfig").toObject().value("aspectRatio").toString(), QString("21:9"));
+        const QJsonArray parts = body.value("contents").toArray().first().toObject().value("parts").toArray();
+        QCOMPARE(parts.size(), 2);
+        QCOMPARE(parts.at(1).toObject().value("inline_data").toObject().value("mime_type").toString(), QString("image/png"));
+    }
+
+    void settingsPersist()
+    {
+        QTemporaryDir dir;
+        const QString file = dir.filePath("easel/settings.json");
+        {
+            Settings settings(file);
+            QCOMPARE(settings.openaiModel(), QString(Settings::defaultOpenaiModel));
+            settings.setBackend("gemini");
+            settings.setGeminiModel("  some-image-model ");
+            settings.setExportFormat("jpeg");
+            settings.setExportQuality(130);
+            settings.setExtraExportFolder("nord", dir.filePath("repo/backgrounds"));
+            settings.setExportFormat("gif");  // not a choice; ignored
+        }
+        Settings again(file);
+        QCOMPARE(again.backend(), QString("gemini"));
+        QCOMPARE(again.geminiModel(), QString("some-image-model"));
+        QCOMPARE(again.exportFormat(), QString("jpeg"));
+        QCOMPARE(again.exportQuality(), 100);
+        QCOMPARE(again.extraExportFolder("nord"), dir.filePath("repo/backgrounds"));
+        again.setGeminiModel("");
+        QCOMPARE(again.geminiModel(), QString(Settings::defaultGeminiModel));
+    }
+
+    void keysComeFromEnvironmentOrKeyring()
+    {
+        QTemporaryDir dir;
+        // A fake secret-tool that keeps one secret in a file.
+        const QString store = dir.filePath("secret");
+        write(dir.filePath("secret-tool"),
+              "#!/bin/sh\ncase \"$1\" in\n  store) cat > '" + store.toUtf8() + "' ;;\n"
+              "  lookup) [ -f '" + store.toUtf8() + "' ] && cat '" + store.toUtf8() + "' || exit 1 ;;\n"
+              "  clear) rm -f '" + store.toUtf8() + "' ;;\nesac\n");
+        QVERIFY(QFile::setPermissions(dir.filePath("secret-tool"), QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+        qputenv("EASEL_SECRET_TOOL", dir.filePath("secret-tool").toUtf8());
+        const QByteArray previous = qgetenv("GEMINI_API_KEY");
+        qunsetenv("GEMINI_API_KEY");
+
+        QVERIFY(!Backends::gemini().available);
+        QString error;
+        QVERIFY(KeyStore::set("gemini", "  test-key \n", &error));
+        QCOMPARE(KeyStore::get("gemini"), QString("test-key"));
+        QVERIFY(Backends::gemini().available);
+        qputenv("GEMINI_API_KEY", "from-env");
+        QCOMPARE(KeyStore::get("gemini"), QString("from-env"));
+        QVERIFY(Backends::gemini().detail.contains("GEMINI_API_KEY"));
+        qunsetenv("GEMINI_API_KEY");
+        QVERIFY(KeyStore::clear("gemini", &error));
+        QVERIFY(KeyStore::get("gemini").isEmpty());
+
+        if (!previous.isEmpty())
+            qputenv("GEMINI_API_KEY", previous);
+        qunsetenv("EASEL_SECRET_TOOL");
+    }
+
+    void exportsJpegAndCopiesToExtraFolder()
+    {
+        if (QStandardPaths::findExecutable("magick").isEmpty())
+            QSKIP("ImageMagick is not installed.");
+        QTemporaryDir dir;
+        const Paths paths = Paths::underRoot(dir.path());
+        write(paths.stockThemes + "/nord/colors.toml", "accent = \"#111111\"\n");
+        const auto theme = ThemeLibrary(paths).load("nord");
+        const Library library(paths);
+        QString error;
+        const QString batch = library.createBatch("nord", {{"scene", "snow"}, {"theme", "nord"}}, &error);
+        QImage image(240, 100, QImage::Format_RGB32);
+        image.fill(Qt::white);
+        QVERIFY(image.save(Library::candidatePath(batch, 0)));
+
+        const ExportOptions options{"jpeg", 90, dir.filePath("repo/backgrounds")};
+        const auto kept = library.keep(Library::candidatePath(batch, 0), *theme, Target{120, 50, {}}, {}, &error, options);
+        QVERIFY2(kept, qPrintable(error));
+        QVERIFY(kept->exported.endsWith("1-snow.jpg"));
+        QCOMPARE(QImageReader(kept->exported).format(), QByteArray("jpeg"));
+        QCOMPARE(kept->extraCopy, dir.filePath("repo/backgrounds/1-snow.jpg"));
+        QVERIFY(QFileInfo::exists(kept->extraCopy));
     }
 
     void keepStoresMasterAndExport()

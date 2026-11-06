@@ -1,10 +1,10 @@
-# easel
+# Oma Easel
 
 Generates new background images for an installed [Omarchy](https://omarchy.org) theme, in the style of its existing backgrounds and colors, sized for your screens.
 
 New backgrounds go into `~/.config/omarchy/backgrounds/<theme>/`, where Omarchy picks them up for that theme's background cycle. Themes themselves are never modified.
 
-> Working name, early days.
+> Working name, early days. The binary, package, and paths are still `easel`.
 
 ## How it works
 
@@ -18,10 +18,11 @@ Candidates wait in `~/.cache/easel/<theme>/<batch>/` until kept.
 ## Backends
 
 - **Codex** (default): runs `codex exec` with Codex's built-in image tool on your ChatGPT login. No API key needed.
-- **OpenAI API** with `gpt-image-2`: planned.
+- **OpenAI API** (`gpt-image-2` by default) with your API key: native 3440x1440 output.
+- **Gemini API** (`gemini-3.1-flash-image-preview` by default) with your API key.
 - **Manual** (fallback): when no generator is available, easel prints the same prompt a backend would send, lists the reference images to attach, and gives short steps for any image platform you can use (ChatGPT, Gemini, Copilot…). Bring the result back with `easel import`, then keep it like any other candidate.
 
-`easel backends` shows what this machine has.
+`easel backends` shows what this machine has. In the window, **models & export** (`s`) switches between them, edits model ids, and saves API keys to the desktop keyring through `secret-tool` (an `OPENAI_API_KEY` or `GEMINI_API_KEY` environment variable wins). The same menu sets the export format (WebP, JPEG, PNG), quality, and an optional folder that gets a copy of every kept background for the theme, such as a theme repo's `backgrounds/`.
 
 ## Window
 
@@ -55,7 +56,7 @@ easel themes                         List installed themes (* marks the current 
 easel theme [theme]                  Show a theme's colors and backgrounds
 easel screens                        Show monitors and the export size
 easel backends                       Show which ways of making images are available
-easel generate [theme] --prompt "…" [--ref …] [-n 3]
+easel generate [theme] --prompt "…" [--ref …] [-n 3] [--backend codex|openai|gemini]
 easel prompt [theme] --prompt "…" [--ref …]
                                      Print a prompt to paste into another image platform
 easel import <file>… [--theme …] [--prompt "…"] [--source "…"]

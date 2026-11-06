@@ -1,4 +1,4 @@
-QT += core gui qml quick quickcontrols2 dbus
+QT += core gui qml quick quickcontrols2 dbus network
 
 CONFIG += c++17 release
 TARGET = easel
@@ -13,6 +13,9 @@ HEADERS += \
     src/codexgenerator.h \
     src/library.h \
     src/backends.h \
+    src/settings.h \
+    src/keystore.h \
+    src/apigenerators.h \
     src/portalfilepicker.h \
     src/previewsession.h \
     src/studio.h \
@@ -29,6 +32,9 @@ SOURCES += \
     src/codexgenerator.cpp \
     src/library.cpp \
     src/backends.cpp \
+    src/settings.cpp \
+    src/keystore.cpp \
+    src/apigenerators.cpp \
     src/portalfilepicker.cpp \
     src/previewsession.cpp \
     src/studio.cpp \

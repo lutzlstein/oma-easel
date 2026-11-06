@@ -23,6 +23,7 @@ Paths Paths::defaults() {
     paths.cache = xdg("XDG_CACHE_HOME", "/.cache") + "/easel";
     paths.data = xdg("XDG_DATA_HOME", "/.local/share") + "/easel";
     paths.codexImages = codexHome + "/generated_images";
+    paths.settings = config + "/easel/settings.json";
     return paths;
 }
 
@@ -36,5 +37,6 @@ Paths Paths::underRoot(const QString &root) {
     paths.cache = root + "/cache/easel";
     paths.data = root + "/data/easel";
     paths.codexImages = root + "/codex/generated_images";
+    paths.settings = root + "/config/easel/settings.json";
     return paths;
 }

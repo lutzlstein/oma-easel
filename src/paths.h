@@ -12,6 +12,7 @@ struct Paths {
     QString cache;             // ~/.cache/easel, for candidates that may be thrown away
     QString data;              // ~/.local/share/easel, for kept lossless masters
     QString codexImages;       // ~/.codex/generated_images
+    QString settings;          // ~/.config/easel/settings.json
 
     static Paths defaults();
     static Paths underRoot(const QString &root);

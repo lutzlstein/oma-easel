@@ -30,7 +30,7 @@ int main(int argc, char *argv[]) {
     // The working name lives here (and in the binary, package, and desktop
     // file names); the window reads it from Qt.application.displayName.
     app.setApplicationName("easel");
-    app.setApplicationDisplayName("Easel");
+    app.setApplicationDisplayName("Oma Easel");
     app.setApplicationVersion("0.1.0");
 
     if (command)
@@ -60,6 +60,11 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("translator", &translator);
     engine.rootContext()->setContextProperty("theme", &theme);
     engine.rootContext()->setContextProperty("studio", &studio);
+    // The footer's attribution links here.
+    // EASEL_SCREENSHOT_OPEN names an overlay to open for the screenshot.
+    engine.rootContext()->setContextProperty("screenshotOpen", qEnvironmentVariable("EASEL_SCREENSHOT_OPEN"));
+    engine.rootContext()->setContextProperty("appAuthor", QStringLiteral("lutzlstein"));
+    engine.rootContext()->setContextProperty("appRepository", QStringLiteral("https://github.com/lutzlstein/oma-easel"));
     engine.load(QUrl("qrc:/Main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;

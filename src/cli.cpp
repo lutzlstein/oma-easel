@@ -14,6 +14,7 @@
 
 #include "backends.h"
 #include "codexgenerator.h"
+#include "settings.h"
 #include "library.h"
 #include "promptbuilder.h"
 #include "screens.h"
@@ -189,6 +190,7 @@ int generate(const QStringList &arguments, const Paths &paths) {
     addBriefOptions(parser);
     parser.addOption({{"n", "count"}, "How many candidates, 1 to 6 (default 3).", "count", "3"});
     parser.addOption({"codex", "The codex binary to run.", "path", "codex"});
+    parser.addOption({"backend", "codex, openai, or gemini; the one chosen in the window when left out.", "name"});
     QString error;
     if (!parse(parser, arguments, &error))
         return failure(error);
@@ -205,16 +207,29 @@ int generate(const QStringList &arguments, const Paths &paths) {
     const QString &prompt = brief->prompt;
     const QString &scene = brief->scene;
 
-    // Without a generator, point at the manual path instead of failing blind.
-    const BackendStatus codex = Backends::codex(parser.value("codex"));
-    if (!codex.available)
-        return failure(codex.detail + " Use `easel prompt` to get a prompt for another image platform, "
-                                      "then `easel import` the result.");
+    // The backend: as asked, else the one saved from the window, else the
+    // first that is ready. Without any, point at the manual path.
+    const Settings settings(paths.settings);
+    const QList<BackendStatus> statuses = Backends::all(parser.value("codex"));
+    QString backend = parser.value("backend");
+    if (backend.isEmpty()) {
+        backend = Backends::preferred(statuses);
+        for (const BackendStatus &status : statuses)
+            if (status.name == settings.backend() && status.available)
+                backend = status.name;
+    }
+    for (const BackendStatus &status : statuses)
+        if (status.name == backend && !status.available)
+            return failure(status.detail);
+    if (backend == "manual")
+        return failure("No image generator is set up. Use `easel prompt` to get a prompt for another image platform, "
+                       "then `easel import` the result.");
 
     const QJsonObject batchInfo{{"scene", scene},
                                 {"prompt", prompt},
                                 {"references", QJsonArray::fromStringList(references)},
-                                {"backend", "codex"},
+                                {"backend", backend},
+                                {"model", backend == "openai" ? settings.openaiModel() : backend == "gemini" ? settings.geminiModel() : QString()},
                                 {"theme", info->slug},
                                 {"target", target.toJson()},
                                 {"createdAt", QDateTime::currentDateTime().toString(Qt::ISODate)}};
@@ -226,13 +241,15 @@ int generate(const QStringList &arguments, const Paths &paths) {
     // All candidates run at once; each reports back on its own, and the
     // command returns once every one has finished or failed.
     QTextStream progress(stderr);
-    progress << "Generating " << count << " candidate(s) for " << info->name << "..." << Qt::endl;
-    std::vector<std::unique_ptr<CodexGenerator>> jobs;
+    progress << "Generating " << count << " candidate(s) for " << info->name << " with " << Backends::label(backend) << "..." << Qt::endl;
+    std::vector<std::unique_ptr<Generator>> jobs;
     QJsonArray candidates, failures;
     int remaining = count;
     QEventLoop loop;
     for (int i = 0; i < count; ++i) {
-        auto job = std::make_unique<CodexGenerator>(parser.value("codex"), paths.codexImages);
+        std::unique_ptr<Generator> job(Backends::create(backend, settings, target, parser.value("codex"), paths.codexImages, nullptr, &error));
+        if (!job)
+            return failure(error);
         const QString output = Library::candidatePath(batch, i);
         QObject::connect(job.get(), &Generator::finished, &loop, [&, i](const QString &path) {
             candidates.append(QJsonObject{{"index", i + 1}, {"path", path}});

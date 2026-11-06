@@ -5,6 +5,11 @@
 #include <QStandardPaths>
 #include <QStringList>
 
+#include "apigenerators.h"
+#include "codexgenerator.h"
+#include "keystore.h"
+#include "settings.h"
+
 BackendStatus Backends::codex(const QString &codex) {
     const QString executable = QFileInfo(codex).isAbsolute() ? codex : QStandardPaths::findExecutable(codex);
     if (executable.isEmpty() || !QFileInfo(executable).isExecutable())
@@ -25,12 +30,42 @@ BackendStatus Backends::codex(const QString &codex) {
     return {"codex", true, answer.isEmpty() ? QString("Logged in.") : answer};
 }
 
-// The API backend is planned; the key is reported so the window can say what
-// would be used once it exists.
-BackendStatus Backends::openai() {
-    if (qEnvironmentVariableIsEmpty("OPENAI_API_KEY"))
-        return {"openai", false, "OPENAI_API_KEY is not set."};
-    return {"openai", false, "OPENAI_API_KEY is set, but the API backend isn't built yet."};
+namespace {
+BackendStatus keyed(const QString &name) {
+    if (KeyStore::fromEnvironment(name))
+        return {name, true, "Using " + KeyStore::environmentVariable(name) + "."};
+    if (!KeyStore::get(name).isEmpty())
+        return {name, true, "API key saved in the keyring."};
+    return {name, false, "No API key yet. Paste one below, or set " + KeyStore::environmentVariable(name) + "."};
+}
+}
+
+BackendStatus Backends::openai() { return keyed("openai"); }
+BackendStatus Backends::gemini() { return keyed("gemini"); }
+
+QString Backends::label(const QString &name) {
+    if (name == "codex") return "Codex";
+    if (name == "openai") return "OpenAI API";
+    if (name == "gemini") return "Gemini API";
+    return "Manual";
+}
+
+Generator *Backends::create(const QString &name, const Settings &settings, const Target &target, const QString &codex,
+                            const QString &codexImages, QObject *parent, QString *error) {
+    if (name == "codex")
+        return new CodexGenerator(codex, codexImages, parent);
+    if (name == "openai" || name == "gemini") {
+        const QString key = KeyStore::get(name);
+        if (key.isEmpty()) {
+            *error = label(name) + " has no API key.";
+            return nullptr;
+        }
+        if (name == "openai")
+            return new OpenAIGenerator(key, settings.openaiModel(), target, parent);
+        return new GeminiGenerator(key, settings.geminiModel(), target, parent);
+    }
+    *error = "Manual mode doesn't generate; copy the prompt instead.";
+    return nullptr;
 }
 
 BackendStatus Backends::manual() {
@@ -38,7 +73,7 @@ BackendStatus Backends::manual() {
 }
 
 QList<BackendStatus> Backends::all(const QString &codex) {
-    return {Backends::codex(codex), openai(), manual()};
+    return {Backends::codex(codex), openai(), gemini(), manual()};
 }
 
 QString Backends::preferred(const QList<BackendStatus> &statuses) {

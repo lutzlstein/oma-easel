@@ -106,7 +106,8 @@ int Library::nextNumber(const QStringList &fileNames) {
 }
 
 std::optional<Library::Kept> Library::keep(const QString &candidate, const ThemeInfo &theme,
-                                           const Target &target, const QString &name, QString *error) const {
+                                           const Target &target, const QString &name, QString *error,
+                                           const ExportOptions &options) const {
     auto failWith = [error](const QString &message) {
         if (error)
             *error = message;
@@ -132,7 +133,8 @@ std::optional<Library::Kept> Library::keep(const QString &candidate, const Theme
     Kept kept;
     kept.master = masterDirectory + "/" + base + ".png";
     kept.sidecar = masterDirectory + "/" + base + ".json";
-    kept.exported = theme.userBackgroundDirectory + "/" + base + ".webp";
+    const QString extension = options.format == "jpeg" ? "jpg" : options.format;
+    kept.exported = theme.userBackgroundDirectory + "/" + base + "." + extension;
     if (QFileInfo::exists(kept.master) || QFileInfo::exists(kept.exported))
         return failWith("A background named " + base + " already exists.");
 
@@ -150,26 +152,45 @@ std::optional<Library::Kept> Library::keep(const QString &candidate, const Theme
         return failWith("Could not write " + kept.sidecar);
     }
 
-    if (!exportWebp(kept.master, kept.exported, target, error)) {
+    if (!exportImage(kept.master, kept.exported, target, options, error)) {
         QFile::remove(kept.master);
         QFile::remove(kept.sidecar);
         return std::nullopt;
+    }
+
+    // The optional second copy, under the same name. A failure here doesn't
+    // undo the keep; it's reported and the background stays in the theme.
+    if (!options.extraFolder.isEmpty()) {
+        const QString copy = options.extraFolder + "/" + QFileInfo(kept.exported).fileName();
+        if (QDir().mkpath(options.extraFolder) && !QFileInfo::exists(copy) && QFile::copy(kept.exported, copy))
+            kept.extraCopy = copy;
+        else if (error)
+            *error = "Kept, but could not copy it to " + options.extraFolder;
     }
     return kept;
 }
 
 // Lanczos keeps painterly brushwork better than AI upscalers, and WebP at
-// quality 85 is visually lossless for wallpapers at a fraction of PNG's size.
-// The file is written beside the target and renamed, so Omarchy's background
-// cycle never sees half an image.
-bool Library::exportWebp(const QString &source, const QString &destination, const Target &target,
-                         QString *error) const {
+// quality 85 (the default) is visually lossless for wallpapers at a fraction
+// of PNG's size. The file is written beside the target and renamed, so
+// Omarchy's background cycle never sees half an image.
+bool Library::exportImage(const QString &source, const QString &destination, const Target &target,
+                          const ExportOptions &options, QString *error) const {
     const QString size = QString("%1x%2").arg(target.width).arg(target.height);
     const QString partial = destination + ".partial";
     QProcess process;
     process.setProcessChannelMode(QProcess::MergedChannels);
-    process.start(m_magick, {source, "-filter", "Lanczos", "-resize", size + "^", "-gravity", "center",
-                             "-extent", size, "-quality", "85", "-define", "webp:method=6", "webp:" + partial});
+    QStringList arguments{source, "-filter", "Lanczos", "-resize", size + "^", "-gravity", "center", "-extent", size};
+    if (options.format == "png")
+        arguments << "-define" << "png:compression-level=9";
+    else
+        arguments << "-quality" << QString::number(options.quality);
+    if (options.format == "webp")
+        arguments << "-define" << "webp:method=6";
+    if (options.format == "jpeg")
+        arguments << "-sampling-factor" << "4:4:4" << "-strip";
+    arguments << options.format + ":" + partial;
+    process.start(m_magick, arguments);
     if (!process.waitForStarted(5000)) {
         if (error)
             *error = "Could not run ImageMagick (" + m_magick + "). Install the imagemagick package.";
@@ -229,5 +250,8 @@ bool Library::remove(const QString &exported, const QString &themeSlug, QString 
 }
 
 QJsonObject Library::Kept::toJson() const {
-    return {{"master", master}, {"sidecar", sidecar}, {"exported", exported}};
+    QJsonObject json{{"master", master}, {"sidecar", sidecar}, {"exported", exported}};
+    if (!extraCopy.isEmpty())
+        json.insert("extraCopy", extraCopy);
+    return json;
 }
