@@ -27,6 +27,7 @@ public:
     QString createBatch(const QString &themeSlug, const QJsonObject &info, QString *error) const;
     static QString candidatePath(const QString &batch, int index);
     static QJsonObject readBatch(const QString &batch);
+    static QStringList importInto(const QString &batch, const QStringList &files, QString *error);
 
     std::optional<Kept> keep(const QString &candidate, const ThemeInfo &theme, const Target &target,
                              const QString &name, QString *error) const;

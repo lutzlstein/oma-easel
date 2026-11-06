@@ -5,6 +5,7 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include "backends.h"
 #include "codexgenerator.h"
 #include "library.h"
 #include "promptbuilder.h"
@@ -131,6 +132,53 @@ private slots:
         QCOMPARE(Library::nextNumber({"1-a.webp", "/x/3-b.png", "c.jpg"}), 4);
         QCOMPARE(Library::nextNumber({"a.jpg", "b.jpg"}), 3);
         QCOMPARE(Library::nextNumber({}), 1);
+    }
+
+    void detectsCodexLogin()
+    {
+        QTemporaryDir dir;
+        const QString loggedIn = dir.filePath("codex-in"), loggedOut = dir.filePath("codex-out");
+        write(loggedIn, "#!/bin/sh\necho 'Logged in using ChatGPT'\n");
+        write(loggedOut, "#!/bin/sh\necho 'Not logged in'\nexit 1\n");
+        for (const QString &script : {loggedIn, loggedOut})
+            QVERIFY(QFile::setPermissions(script, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+
+        QVERIFY(Backends::codex(loggedIn).available);
+        QCOMPARE(Backends::codex(loggedIn).detail, QString("Logged in using ChatGPT"));
+        QVERIFY(!Backends::codex(loggedOut).available);
+        QVERIFY(!Backends::codex(dir.filePath("missing")).available);
+    }
+
+    void fallsBackToManual()
+    {
+        QCOMPARE(Backends::preferred({{"codex", false, ""}, {"openai", false, ""}, Backends::manual()}), QString("manual"));
+        QCOMPARE(Backends::preferred({{"codex", true, ""}, Backends::manual()}), QString("codex"));
+        const QString steps = Backends::manualSteps("nord", 2);
+        QVERIFY(steps.contains("Attach the 2 reference image(s)"));
+        QVERIFY(steps.contains("easel import <file> --theme nord"));
+        QVERIFY(!Backends::manualSteps("nord", 0).contains("Attach"));
+    }
+
+    void importsImagesAsCandidates()
+    {
+        QTemporaryDir dir;
+        const Paths paths = Paths::underRoot(dir.path());
+        QImage image(64, 32, QImage::Format_RGB32);
+        image.fill(Qt::darkGreen);
+        QVERIFY(image.save(dir.filePath("download.jpg")));
+        write(dir.filePath("notes.txt"), "not an image");
+
+        QString error;
+        const QString batch = Library(paths).createBatch("nord", {{"backend", "manual"}}, &error);
+        const QStringList imported = Library::importInto(batch, {dir.filePath("download.jpg")}, &error);
+        QCOMPARE(imported, QStringList({Library::candidatePath(batch, 0)}));
+        QCOMPARE(QImage(imported.first()).size(), QSize(64, 32));
+        QVERIFY(QFileInfo::exists(dir.filePath("download.jpg")));
+
+        // A second import continues the numbering; a non-image is refused.
+        QCOMPARE(Library::importInto(batch, {dir.filePath("download.jpg")}, &error).first(), Library::candidatePath(batch, 1));
+        QVERIFY(Library::importInto(batch, {dir.filePath("notes.txt")}, &error).isEmpty());
+        QVERIFY(error.contains("notes.txt"));
     }
 
     void keepStoresMasterAndExport()

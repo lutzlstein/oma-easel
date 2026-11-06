@@ -12,7 +12,8 @@ HEADERS += \
     src/generator.h \
     src/codexgenerator.h \
     src/library.h \
-    src/cli.h
+    src/cli.h \
+    src/backends.h
 
 SOURCES += \
     src/main.cpp \
@@ -22,4 +23,5 @@ SOURCES += \
     src/promptbuilder.cpp \
     src/codexgenerator.cpp \
     src/library.cpp \
-    src/cli.cpp
+    src/cli.cpp \
+    src/backends.cpp

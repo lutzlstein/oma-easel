@@ -12,6 +12,7 @@
 #include <memory>
 #include <vector>
 
+#include "backends.h"
 #include "codexgenerator.h"
 #include "library.h"
 #include "promptbuilder.h"
@@ -19,7 +20,7 @@
 #include "themelibrary.h"
 
 namespace {
-const QStringList commands{"themes", "theme", "screens", "generate", "keep", "help"};
+const QStringList commands{"themes", "theme", "screens", "backends", "generate", "prompt", "import", "keep", "help"};
 
 QTextStream &out() {
     static QTextStream stream(stdout);
@@ -73,6 +74,45 @@ QString resolveReference(const QString &reference, const ThemeInfo &theme) {
         if (QFileInfo(background).fileName() == reference)
             return background;
     return {};
+}
+
+// The scene, references, and finished prompt shared by `generate` and
+// `prompt`, so the manual prompt is exactly what a backend would send.
+struct Brief {
+    ThemeInfo theme;
+    QString scene;
+    QStringList references;
+    Target target;
+    QString prompt;
+};
+
+std::optional<Brief> readBrief(const QCommandLineParser &parser, const Paths &paths, QString *error) {
+    const QString scene = parser.value("prompt").trimmed();
+    if (scene.isEmpty()) {
+        *error = "Describe the scene with --prompt \"...\".";
+        return std::nullopt;
+    }
+    const auto info = loadTheme(ThemeLibrary(paths), parser.positionalArguments().value(0), error);
+    if (!info)
+        return std::nullopt;
+    Brief brief{*info, scene, {}, Screens::target(Screens::query()), {}};
+    for (const QString &reference : parser.values("ref")) {
+        const QString resolved = resolveReference(reference, *info);
+        if (resolved.isEmpty()) {
+            *error = QString("No file or %1 background matches \"%2\".").arg(info->name, reference);
+            return std::nullopt;
+        }
+        brief.references << resolved;
+    }
+    brief.prompt = PromptBuilder::build(scene, info->colors, brief.references.size(), brief.target);
+    return brief;
+}
+
+void addBriefOptions(QCommandLineParser &parser) {
+    parser.addPositionalArgument("theme", "Theme slug or name; the current theme when left out.");
+    parser.addOption({"prompt", "The scene to paint.", "text"});
+    parser.addOption({"ref", "Style reference: a file, a background name, or its number in `easel theme`. "
+                             "Repeatable.", "reference"});
 }
 
 int themes(const QStringList &arguments, const Paths &paths) {
@@ -145,36 +185,31 @@ int screens(const QStringList &arguments) {
 
 int generate(const QStringList &arguments, const Paths &paths) {
     QCommandLineParser parser;
-    parser.addPositionalArgument("theme", "Theme slug or name; the current theme when left out.");
-    parser.addOption({"prompt", "The scene to paint.", "text"});
-    parser.addOption({"ref", "Style reference: a file, a background name, or its number in `easel theme`. "
-                             "Repeatable.", "reference"});
+    addBriefOptions(parser);
     parser.addOption({{"n", "count"}, "How many candidates, 1 to 6 (default 3).", "count", "3"});
     parser.addOption({"codex", "The codex binary to run.", "path", "codex"});
     QString error;
     if (!parse(parser, arguments, &error))
         return failure(error);
-    const QString scene = parser.value("prompt").trimmed();
-    if (scene.isEmpty())
-        return failure("Describe the scene with --prompt \"...\".");
     bool validCount = false;
     const int count = parser.value("count").toInt(&validCount);
     if (!validCount || count < 1 || count > 6)
         return failure("--count must be between 1 and 6.");
-
-    const auto info = loadTheme(ThemeLibrary(paths), parser.positionalArguments().value(0), &error);
-    if (!info)
+    const auto brief = readBrief(parser, paths, &error);
+    if (!brief)
         return failure(error);
-    QStringList references;
-    for (const QString &reference : parser.values("ref")) {
-        const QString resolved = resolveReference(reference, *info);
-        if (resolved.isEmpty())
-            return failure(QString("No file or %1 background matches \"%2\".").arg(info->name, reference));
-        references << resolved;
-    }
+    const auto *info = &brief->theme;
+    const QStringList &references = brief->references;
+    const Target &target = brief->target;
+    const QString &prompt = brief->prompt;
+    const QString &scene = brief->scene;
 
-    const Target target = Screens::target(Screens::query());
-    const QString prompt = PromptBuilder::build(scene, info->colors, references.size(), target);
+    // Without a generator, point at the manual path instead of failing blind.
+    const BackendStatus codex = Backends::codex(parser.value("codex"));
+    if (!codex.available)
+        return failure(codex.detail + " Use `easel prompt` to get a prompt for another image platform, "
+                                      "then `easel import` the result.");
+
     const QJsonObject batchInfo{{"scene", scene},
                                 {"prompt", prompt},
                                 {"references", QJsonArray::fromStringList(references)},
@@ -225,6 +260,99 @@ int generate(const QStringList &arguments, const Paths &paths) {
     return candidates.isEmpty() ? failure("No candidates were generated.") : 0;
 }
 
+int backends(const QStringList &arguments) {
+    QCommandLineParser parser;
+    QString error;
+    if (!parse(parser, arguments, &error))
+        return failure(error);
+    const QList<BackendStatus> statuses = Backends::all();
+    const QString preferred = Backends::preferred(statuses);
+    if (parser.isSet("json")) {
+        QJsonArray list;
+        for (const BackendStatus &status : statuses)
+            list.append(status.toJson());
+        printJson(QJsonObject{{"preferred", preferred}, {"backends", list}});
+        return 0;
+    }
+    for (const BackendStatus &status : statuses)
+        out() << (status.name == preferred ? "* " : "  ") << status.name << (status.available ? "  ready: " : "  unavailable: ")
+              << status.detail << "\n";
+    out() << Qt::flush;
+    return 0;
+}
+
+// The manual backend: everything needed to make the image somewhere else.
+int prompt(const QStringList &arguments, const Paths &paths) {
+    QCommandLineParser parser;
+    addBriefOptions(parser);
+    QString error;
+    if (!parse(parser, arguments, &error))
+        return failure(error);
+    const auto brief = readBrief(parser, paths, &error);
+    if (!brief)
+        return failure(error);
+    const QString steps = Backends::manualSteps(brief->theme.slug, brief->references.size());
+    if (parser.isSet("json")) {
+        printJson(QJsonObject{{"theme", brief->theme.slug},
+                              {"scene", brief->scene},
+                              {"prompt", brief->prompt},
+                              {"references", QJsonArray::fromStringList(brief->references)},
+                              {"target", brief->target.toJson()},
+                              {"steps", steps}});
+        return 0;
+    }
+    out() << brief->prompt << "\n\n";
+    if (!brief->references.isEmpty()) {
+        out() << "References to attach:\n";
+        for (const QString &reference : brief->references)
+            out() << "  " << reference << "\n";
+        out() << "\n";
+    }
+    out() << steps << Qt::flush;
+    return 0;
+}
+
+int import(const QStringList &arguments, const Paths &paths) {
+    QCommandLineParser parser;
+    parser.addPositionalArgument("files", "Images made elsewhere.", "<file>...");
+    parser.addOption({"theme", "Theme the images are for; the current theme when left out.", "theme"});
+    parser.addOption({"prompt", "The scene, used to name the background when kept.", "text"});
+    // Not --platform: Qt claims that option for itself before easel sees it.
+    parser.addOption({"source", "Where the images were made (ChatGPT, Gemini, ...), recorded with them.", "name"});
+    QString error;
+    if (!parse(parser, arguments, &error))
+        return failure(error);
+    const QStringList files = parser.positionalArguments();
+    if (files.isEmpty())
+        return failure("Give the image file(s) to import.");
+    const auto info = loadTheme(ThemeLibrary(paths), parser.value("theme"), &error);
+    if (!info)
+        return failure(error);
+
+    QJsonArray sources;
+    for (const QString &file : files)
+        sources.append(QFileInfo(file).absoluteFilePath());
+    const QJsonObject batchInfo{{"scene", parser.value("prompt")},
+                                {"backend", "manual"},
+                                {"source", parser.value("source")},
+                                {"importedFrom", sources},
+                                {"theme", info->slug},
+                                {"createdAt", QDateTime::currentDateTime().toString(Qt::ISODate)}};
+    const QString batch = Library(paths).createBatch(info->slug, batchInfo, &error);
+    if (batch.isEmpty())
+        return failure(error);
+    const QStringList candidates = Library::importInto(batch, files, &error);
+    if (candidates.isEmpty())
+        return failure(error);
+    if (parser.isSet("json"))
+        printJson(QJsonObject{{"theme", info->slug}, {"batch", batch}, {"candidates", QJsonArray::fromStringList(candidates)}});
+    else
+        for (const QString &candidate : candidates)
+            out() << candidate << "\n";
+    out() << Qt::flush;
+    return 0;
+}
+
 int keep(const QStringList &arguments, const Paths &paths) {
     QCommandLineParser parser;
     parser.addPositionalArgument("candidate", "A candidate PNG printed by `easel generate`.");
@@ -264,8 +392,13 @@ QString Cli::usage() {
            "  themes                 List installed Omarchy themes\n"
            "  theme [theme]          Show a theme's colors and backgrounds\n"
            "  screens                Show monitors and the export size\n"
+           "  backends               Show which ways of making images are available\n"
            "  generate [theme] --prompt \"...\" [--ref ...] [-n 3]\n"
            "                         Generate candidate backgrounds\n"
+           "  prompt [theme] --prompt \"...\" [--ref ...]\n"
+           "                         Print a prompt to paste into another image platform\n"
+           "  import <file>... [--theme ...] [--prompt \"...\"]\n"
+           "                         Add images made elsewhere as candidates\n"
            "  keep <candidate> [--name \"...\"]\n"
            "                         Keep a candidate as a background for its theme\n\n"
            "Every command takes --json. Run `easel <command> --help` for its options.\n";
@@ -283,8 +416,14 @@ int Cli::run(const QStringList &arguments, const Paths &paths) {
         return theme(rest, paths);
     if (command == "screens")
         return screens(rest);
+    if (command == "backends")
+        return backends(rest);
     if (command == "generate")
         return generate(rest, paths);
+    if (command == "prompt")
+        return prompt(rest, paths);
+    if (command == "import")
+        return import(rest, paths);
     if (command == "keep")
         return keep(rest, paths);
     if (command == "--version" || command == "-v") {

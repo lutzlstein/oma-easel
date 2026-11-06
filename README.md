@@ -19,6 +19,9 @@ Candidates wait in `~/.cache/easel/<theme>/<batch>/` until kept.
 
 - **Codex** (default): runs `codex exec` with Codex's built-in image tool on your ChatGPT login. No API key needed.
 - **OpenAI API** with `gpt-image-2`: planned.
+- **Manual** (fallback): when no generator is available, easel prints the same prompt a backend would send, lists the reference images to attach, and gives short steps for any image platform you can use (ChatGPT, Gemini, Copilot…). Bring the result back with `easel import`, then keep it like any other candidate.
+
+`easel backends` shows what this machine has.
 
 ## Commands
 
@@ -26,7 +29,12 @@ Candidates wait in `~/.cache/easel/<theme>/<batch>/` until kept.
 easel themes                         List installed themes (* marks the current one)
 easel theme [theme]                  Show a theme's colors and backgrounds
 easel screens                        Show monitors and the export size
+easel backends                       Show which ways of making images are available
 easel generate [theme] --prompt "…" [--ref …] [-n 3]
+easel prompt [theme] --prompt "…" [--ref …]
+                                     Print a prompt to paste into another image platform
+easel import <file>… [--theme …] [--prompt "…"] [--source "…"]
+                                     Add images made elsewhere as candidates
 easel keep <candidate> [--name "…"]
 ```
 

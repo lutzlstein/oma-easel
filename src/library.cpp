@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
 #include <QJsonDocument>
 #include <QProcess>
 #include <QRegularExpression>
@@ -42,6 +43,30 @@ QJsonObject Library::readBatch(const QString &batch) {
     if (!file.open(QIODevice::ReadOnly))
         return {};
     return QJsonDocument::fromJson(file.readAll()).object();
+}
+
+// Brings images made elsewhere into a batch as candidates, after any it
+// already has. Like generated candidates they are stored as PNG, so keeping
+// one works the same whichever way it was made. The originals are untouched.
+QStringList Library::importInto(const QString &batch, const QStringList &files, QString *error) {
+    int index = QDir(batch).entryList({"candidate-*.png"}, QDir::Files).size();
+    QStringList imported;
+    for (const QString &file : files) {
+        const QImage image(file);
+        if (image.isNull()) {
+            if (error)
+                *error = "Not an image easel can read: " + file;
+            return {};
+        }
+        const QString candidate = candidatePath(batch, index++);
+        if (!image.save(candidate, "PNG")) {
+            if (error)
+                *error = "Could not write " + candidate;
+            return {};
+        }
+        imported << candidate;
+    }
+    return imported;
 }
 
 // "Misty harbor at dawn, fishing boats" becomes "misty-harbor-dawn-fishing-boats".
