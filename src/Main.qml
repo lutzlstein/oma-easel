@@ -198,6 +198,7 @@ ApplicationWindow {
                     }
                 }
                 OButton {
+                    keyHint: "h"
                     text: qsTr("history %1").arg(studio.history.length)
                     onClicked: history.visible ? history.close() : history.open()
                 }
@@ -276,12 +277,14 @@ ApplicationWindow {
                 }
                 OButton {
                     primary: true
+                    keyHint: "space"
                     enabled: studio.scene.trim().length > 0 && !studio.busy
                     text: studio.manual ? qsTr("Make prompt") : qsTr("Generate")
                     onClicked: { studio.generate(); grid.forceActiveFocus() }
                 }
                 OButton {
                     visible: studio.busy
+                    keyHint: "esc"
                     text: qsTr("Cancel")
                     onClicked: studio.cancel()
                 }
@@ -319,10 +322,10 @@ ApplicationWindow {
                     OText { Layout.fillWidth: true; text: studio.manualSteps.trim(); wrapMode: Text.Wrap; muted: true }
                     RowLayout {
                         spacing: win.gap
-                        OButton { text: qsTr("Copy prompt"); primary: true; onClicked: studio.copyPrompt() }
+                        OButton { keyHint: "c"; text: qsTr("Copy prompt"); primary: true; onClicked: studio.copyPrompt() }
                         OButton { text: qsTr("Copy reference paths"); visible: studio.references.length > 0; onClicked: studio.copyReferencePaths() }
                         OButton { text: qsTr("Open reference folder"); visible: studio.references.length > 0; onClicked: studio.openReferenceFolder() }
-                        OButton { text: qsTr("Import images…"); onClicked: studio.pickImports() }
+                        OButton { keyHint: "i"; text: qsTr("Import images…"); onClicked: studio.pickImports() }
                         OText { text: qsTr("or drop them onto this window"); muted: true }
                     }
                 }
@@ -428,11 +431,11 @@ ApplicationWindow {
                             anchors.bottom: parent.bottom; anchors.right: parent.right; anchors.margins: 10
                             spacing: 6
                             visible: cell.hasImage && (cellHover.hovered || cell.isSelected)
-                            OButton { text: qsTr("keep"); visible: modelData.state === "ready"; onClicked: studio.keep(cell.index); solid: true }
-                            OButton { text: qsTr("vary"); onClicked: win.askVary(cell.index); solid: true }
-                            OButton { text: modelData.reference ? qsTr("unreference") : qsTr("reference"); onClicked: studio.toggleReference(modelData.path); solid: true }
-                            OButton { text: qsTr("preview"); onClicked: studio.preview(cell.index); solid: true }
-                            OButton { text: qsTr("discard"); onClicked: studio.discard(cell.index); solid: true }
+                            OButton { keyHint: "enter"; text: qsTr("keep"); visible: modelData.state === "ready"; onClicked: studio.keep(cell.index); solid: true }
+                            OButton { keyHint: "v"; text: qsTr("vary"); onClicked: win.askVary(cell.index); solid: true }
+                            OButton { keyHint: "r"; text: modelData.reference ? qsTr("unreference") : qsTr("reference"); onClicked: studio.toggleReference(modelData.path); solid: true }
+                            OButton { keyHint: "p"; text: qsTr("preview"); onClicked: studio.preview(cell.index); solid: true }
+                            OButton { keyHint: "d"; text: qsTr("discard"); onClicked: studio.discard(cell.index); solid: true }
                         }
                     }
                 }
@@ -450,9 +453,15 @@ ApplicationWindow {
             RowLayout {
                 Layout.fillWidth: true
                 OText { Layout.fillWidth: true; text: studio.message; elide: Text.ElideRight }
-                OText {
-                    text: qsTr("space generate · enter keep · v vary · r reference · p preview · h history · ? keys")
-                    muted: true
+                Row {
+                    spacing: 14 * s.spacing
+                    KeyHint { key: "space"; label: qsTr("generate") }
+                    KeyHint { key: "enter"; label: qsTr("keep") }
+                    KeyHint { key: "v"; label: qsTr("vary") }
+                    KeyHint { key: "r"; label: qsTr("reference") }
+                    KeyHint { key: "p"; label: qsTr("preview") }
+                    KeyHint { key: "h"; label: qsTr("history") }
+                    KeyHint { key: "?"; label: qsTr("keys") }
                 }
             }
         }
@@ -581,12 +590,8 @@ ApplicationWindow {
                 placeholderText: qsTr("What should change? warmer light, add fog, a boat on the water…")
                 onAccepted: { varyCard.submitted = true; varyCard.close() }
             }
-            OText {
-                Layout.fillWidth: true
-                text: qsTr("Enter keeps this image and changes only that. Esc makes fresh takes on the same scene in its style.")
-                wrapMode: Text.Wrap
-                muted: true
-            }
+            KeyHint { key: "enter"; label: qsTr("keep this image and change only that") }
+            KeyHint { key: "esc"; label: qsTr("fresh takes on the same scene, in its style") }
         }
     }
 
@@ -599,7 +604,7 @@ ApplicationWindow {
                     ["space", qsTr("Generate a batch (or make the prompt in manual mode)")],
                     ["enter", qsTr("Keep the selected candidate")],
                     ["d", qsTr("Discard the selected candidate")],
-                    ["v", qsTr("Vary: say what to change, or Esc for fresh takes")],
+                    ["v", qsTr("Vary: say what to change, or esc for fresh takes")],
                     ["r", qsTr("Use the selected candidate as a reference")],
                     ["p", qsTr("Preview on an empty workspace")],
                     ["h", qsTr("History of earlier batches")],
@@ -614,7 +619,16 @@ ApplicationWindow {
                 delegate: RowLayout {
                     required property var modelData
                     spacing: 16 * s.spacing
-                    OText { Layout.preferredWidth: 80 * s.spacing; text: modelData[0]; color: s.accent }
+                    Item {
+                        Layout.preferredWidth: 90 * s.spacing
+                        implicitHeight: keyRow.implicitHeight
+                        // Several keys ("← → ↑ ↓") get a cap each.
+                        Row {
+                            id: keyRow
+                            spacing: 4
+                            Repeater { model: modelData[0].split(" "); KeyCap { required property string modelData; key: modelData } }
+                        }
+                    }
                     OText { text: modelData[1] }
                 }
             }
@@ -636,7 +650,7 @@ ApplicationWindow {
             RowLayout {
                 Layout.alignment: Qt.AlignRight
                 spacing: win.gap
-                OButton { text: qsTr("Cancel"); onClicked: removeCard.close() }
+                OButton { keyHint: "esc"; text: qsTr("Cancel"); onClicked: removeCard.close() }
                 OButton { text: qsTr("Remove"); primary: true; onClicked: { studio.removeBackground(removeCard.path); removeCard.close() } }
             }
         }
@@ -651,7 +665,7 @@ ApplicationWindow {
             RowLayout {
                 Layout.alignment: Qt.AlignRight
                 spacing: win.gap
-                OButton { text: qsTr("Cancel"); onClicked: quitDialog.close() }
+                OButton { keyHint: "esc"; text: qsTr("Cancel"); onClicked: quitDialog.close() }
                 OButton { text: qsTr("Quit"); primary: true; onClicked: win.quitNow() }
             }
         }

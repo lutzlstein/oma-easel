@@ -9,6 +9,8 @@ Button {
     property bool primary: false
     // Over images, the button sits on an opaque chip of the theme background.
     property bool solid: false
+    // The key that does the same thing, shown as a cap before the label.
+    property string keyHint
     readonly property var s: theme.style
     readonly property color ink: primary ? s.accent : s.controlColor
 
@@ -22,13 +24,21 @@ Button {
     focusPolicy: Qt.TabFocus
     hoverEnabled: true
 
-    contentItem: Text {
-        text: control.text
-        font: control.font
-        color: control.enabled ? control.ink : Qt.alpha(control.ink, 0.4)
-        horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
-        elide: Text.ElideRight
+    contentItem: Row {
+        spacing: 6
+        KeyCap {
+            visible: control.keyHint !== ""
+            key: control.keyHint
+            ink: control.enabled ? control.ink : Qt.alpha(control.ink, 0.4)
+            anchors.verticalCenter: parent.verticalCenter
+        }
+        Text {
+            text: control.text
+            font: control.font
+            color: control.enabled ? control.ink : Qt.alpha(control.ink, 0.4)
+            verticalAlignment: Text.AlignVCenter
+            anchors.verticalCenter: parent.verticalCenter
+        }
     }
     background: Rectangle {
         radius: theme.radius

@@ -8,6 +8,8 @@
         <file alias="ui/OText.qml">ui/OText.qml</file>
         <file alias="ui/Thumbnail.qml">ui/Thumbnail.qml</file>
         <file alias="ui/AppLogo.qml">ui/AppLogo.qml</file>
+        <file alias="ui/KeyCap.qml">ui/KeyCap.qml</file>
+        <file alias="ui/KeyHint.qml">ui/KeyHint.qml</file>
         <file alias="assets/logo.png">assets/logo.png</file>
         <file alias="assets/fonts/Bitcount.ttf">assets/fonts/Bitcount.ttf</file>
         <file alias="i18n/en.json">i18n/en.json</file>
