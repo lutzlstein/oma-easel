@@ -1,7 +1,7 @@
 QT += core gui qml quick quickcontrols2 dbus network
 
 CONFIG += c++17 release
-TARGET = easel
+TARGET = oma-easel
 TEMPLATE = app
 
 HEADERS += \

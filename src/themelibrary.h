@@ -12,7 +12,7 @@ struct ThemeInfo {
     QString name;
     QMap<QString, QString> colors;     // colors.toml keys to "#rrggbb"
     QStringList backgrounds;           // absolute paths, in Omarchy's cycle order
-    QString userBackgroundDirectory;   // where easel adds new backgrounds
+    QString userBackgroundDirectory;   // where Oma Easel adds new backgrounds
 
     QJsonObject toJson() const;
 };

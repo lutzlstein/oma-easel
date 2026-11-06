@@ -91,7 +91,7 @@ QString Backends::manualSteps(const QString &themeSlug, int referenceCount) {
     if (referenceCount > 0)
         steps << QString("Attach the %1 reference image(s) before pasting the prompt.").arg(referenceCount);
     steps << "Paste the prompt. If the platform lets you pick a shape, pick the widest landscape option.";
-    steps << QString("Download the image, then run: easel import <file> --theme %1").arg(themeSlug);
+    steps << QString("Download the image, then run: oma-easel import <file> --theme %1").arg(themeSlug);
     QString text;
     for (int i = 0; i < steps.size(); ++i)
         text += QString("%1. %2\n").arg(i + 1).arg(steps.at(i));

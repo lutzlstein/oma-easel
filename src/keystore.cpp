@@ -6,12 +6,12 @@
 namespace {
 // Tests point this at a fake; the default is the real secret-tool.
 QString secretTool() {
-    const QString overridden = qEnvironmentVariable("EASEL_SECRET_TOOL");
+    const QString overridden = qEnvironmentVariable("OMA_EASEL_SECRET_TOOL");
     return overridden.isEmpty() ? QStandardPaths::findExecutable("secret-tool") : overridden;
 }
 
 QStringList attributes(const QString &provider) {
-    return {"service", "easel", "provider", provider};
+    return {"service", "oma-easel", "provider", provider};
 }
 }
 
@@ -34,11 +34,27 @@ QString KeyStore::get(const QString &provider) {
     const QString tool = secretTool();
     if (tool.isEmpty())
         return {};
-    QProcess process;
-    process.start(tool, QStringList{"lookup"} + attributes(provider));
-    if (!process.waitForFinished(5000) || process.exitCode() != 0)
-        return {};
-    return QString::fromUtf8(process.readAllStandardOutput()).trimmed();
+    auto lookup = [&tool](const QStringList &attributes) {
+        QProcess process;
+        process.start(tool, QStringList{"lookup"} + attributes);
+        if (!process.waitForFinished(5000) || process.exitCode() != 0)
+            return QString();
+        return QString::fromUtf8(process.readAllStandardOutput()).trimmed();
+    };
+    QString key = lookup(attributes(provider));
+    // Keys saved before the rename to Oma Easel were filed under "easel";
+    // move one over the first time it's needed.
+    if (key.isEmpty()) {
+        const QStringList legacy{"service", "easel", "provider", provider};
+        key = lookup(legacy);
+        QString error;
+        if (!key.isEmpty() && set(provider, key, &error)) {
+            QProcess clear;
+            clear.start(tool, QStringList{"clear"} + legacy);
+            clear.waitForFinished(5000);
+        }
+    }
+    return key;
 }
 
 bool KeyStore::set(const QString &provider, const QString &key, QString *error) {
@@ -51,7 +67,7 @@ bool KeyStore::set(const QString &provider, const QString &key, QString *error) 
     // secret-tool reads the secret from stdin, so the key never appears in a
     // process list.
     QProcess process;
-    process.start(tool, QStringList{"store", "--label", "easel " + provider + " API key"} + attributes(provider));
+    process.start(tool, QStringList{"store", "--label", "Oma Easel " + provider + " API key"} + attributes(provider));
     if (!process.waitForStarted(5000)) {
         *error = QStringLiteral("Could not run secret-tool.");
         return false;

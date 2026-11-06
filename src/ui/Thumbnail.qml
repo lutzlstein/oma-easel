@@ -36,7 +36,7 @@ Rectangle {
         color: thumb.s.background
         OText { id: label; anchors.centerIn: parent; text: thumb.caption }
     }
-    // Backgrounds easel added get a remove button on hover.
+    // Backgrounds Oma Easel added get a remove button on hover.
     OButton {
         visible: thumb.removable && hover.hovered
         anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 4

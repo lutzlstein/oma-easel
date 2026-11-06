@@ -5,7 +5,7 @@
 #include <QString>
 
 // Which ways of making images this machine has. When no generator is
-// available, easel falls back to manual mode: it hands the user a ready
+// available, Oma Easel falls back to manual mode: it hands the user a ready
 // prompt to paste into any image platform they can use, and imports the
 // image they bring back.
 struct BackendStatus {

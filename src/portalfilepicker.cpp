@@ -23,7 +23,7 @@ void PortalFilePicker::openImages(const QString &title) {
     // The portal answers on a request object whose path it derives from our
     // bus name and a token we choose. Subscribing before the call means a
     // fast answer can't arrive before we listen for it.
-    const QString token = QString("easel%1").arg(QRandomGenerator::global()->generate());
+    const QString token = QString("omaeasel%1").arg(QRandomGenerator::global()->generate());
     QString sender = bus.baseService().mid(1);
     sender.replace('.', '_');
     if (!m_handle.isEmpty())

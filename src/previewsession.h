@@ -9,7 +9,7 @@
 // Shows a candidate as the desktop background on an empty workspace, with a
 // small floating terminal asking whether to keep it. Keeping leaves the new
 // background in place; exiting puts the old one back. Either way the user
-// lands back on the workspace easel is on.
+// lands back on the workspace Oma Easel is on.
 class PreviewSession : public QObject {
     Q_OBJECT
 

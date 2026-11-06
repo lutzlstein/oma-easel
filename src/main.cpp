@@ -1,4 +1,4 @@
-// easel: generates new background images for an installed Omarchy theme.
+// Oma Easel: generates new background images for an installed Omarchy theme.
 
 #include <QGuiApplication>
 #include <QIcon>
@@ -27,20 +27,21 @@ int main(int argc, char *argv[]) {
         qputenv("QT_QPA_PLATFORM", "offscreen");
 
     QGuiApplication app(argc, argv);
+    Paths::migrateLegacy();
     // The working name lives here (and in the binary, package, and desktop
     // file names); the window reads it from Qt.application.displayName.
-    app.setApplicationName("easel");
+    app.setApplicationName("oma-easel");
     app.setApplicationDisplayName("Oma Easel");
     app.setApplicationVersion("0.1.0");
 
     if (command)
         return Cli::run(arguments, Paths::defaults());
 
-    // Matches the window to easel.desktop, so the compositor (Wayland app_id)
+    // Matches the window to oma-easel.desktop, so the compositor (Wayland app_id)
     // and the launcher pick up the installed icon.
-    app.setDesktopFileName("easel");
-    app.setWindowIcon(QIcon::fromTheme("easel"));
-    // Basic is the plainest base; every control easel shows is restyled from
+    app.setDesktopFileName("oma-easel");
+    app.setWindowIcon(QIcon::fromTheme("oma-easel"));
+    // Basic is the plainest base; every control Oma Easel shows is restyled from
     // the shell's tokens in src/ui/.
     QQuickStyle::setStyle("Basic");
 
@@ -51,7 +52,7 @@ int main(int argc, char *argv[]) {
 
     Theme theme;
     Studio studio(Paths::defaults());
-    // "easel open nord" starts on that theme instead of the current one.
+    // "oma-easel open nord" starts on that theme instead of the current one.
     if (arguments.size() >= 3)
         studio.loadTheme(arguments.at(2));
 
@@ -61,18 +62,19 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("theme", &theme);
     engine.rootContext()->setContextProperty("studio", &studio);
     // The footer's attribution links here.
-    // EASEL_SCREENSHOT_OPEN names an overlay to open for the screenshot.
-    engine.rootContext()->setContextProperty("screenshotOpen", qEnvironmentVariable("EASEL_SCREENSHOT_OPEN"));
+    // OMA_EASEL_SCREENSHOT_OPEN names an overlay to open for the screenshot.
+    engine.rootContext()->setContextProperty("screenshotOpen", qEnvironmentVariable("OMA_EASEL_SCREENSHOT_OPEN"));
     engine.rootContext()->setContextProperty("appAuthor", QStringLiteral("lutzlstein"));
     engine.rootContext()->setContextProperty("appRepository", QStringLiteral("https://github.com/lutzlstein/oma-easel"));
+    engine.rootContext()->setContextProperty("appSupport", QStringLiteral("https://ko-fi.com/lutzlstein"));
     engine.load(QUrl("qrc:/Main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;
 
     // For READMEs and checking the look without touching the desktop: with
-    // EASEL_SCREENSHOT=<file> (and QT_QPA_PLATFORM=offscreen), save the
+    // OMA_EASEL_SCREENSHOT=<file> (and QT_QPA_PLATFORM=offscreen), save the
     // window once it has drawn and quit.
-    const QString screenshot = qEnvironmentVariable("EASEL_SCREENSHOT");
+    const QString screenshot = qEnvironmentVariable("OMA_EASEL_SCREENSHOT");
     if (!screenshot.isEmpty())
         QTimer::singleShot(2500, &app, [&] {
             if (auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first()))

@@ -13,7 +13,7 @@ ApplicationWindow {
     title: Qt.application.displayName
 
     // Everything takes the shell's look from the current theme's shell.toml,
-    // so easel sits on the desktop like the bar, menus, and panels do.
+    // so Oma Easel sits on the desktop like the bar, menus, and panels do.
     readonly property var s: theme.style
     readonly property real gap: 8 * s.spacing
     FontLoader { id: wordmarkFont; source: "qrc:/assets/fonts/Bitcount.ttf" }
@@ -261,8 +261,8 @@ ApplicationWindow {
                         path: modelData.path
                         chosen: modelData.selected
                         dimmed: studio.references.length > 0 && !modelData.selected
-                        caption: modelData.easel ? qsTr("easel") : ""
-                        removable: modelData.easel
+                        caption: modelData.added ? qsTr("added") : ""
+                        removable: modelData.added
                         onClicked: studio.toggleReference(modelData.path)
                         onRemoveRequested: { removeCard.path = modelData.path; removeCard.open() }
                     }
@@ -490,6 +490,13 @@ ApplicationWindow {
                     font.underline: attributionHover.hovered
                     HoverHandler { id: attributionHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: Qt.openUrlExternally(appRepository) }
+                }
+                OText {
+                    text: qsTr("support on Ko-fi")
+                    muted: !supportHover.hovered
+                    font.underline: supportHover.hovered
+                    HoverHandler { id: supportHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { onTapped: Qt.openUrlExternally(appSupport) }
                 }
                 OButton { keyHint: "s"; text: qsTr("models & export"); onClicked: settingsDrawer.open() }
                 OText { Layout.fillWidth: true; text: studio.message; elide: Text.ElideRight }

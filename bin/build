@@ -5,7 +5,7 @@ ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 mkdir -p "$ROOT/build"
 cd "$ROOT/build"
 
-qmake6 "$ROOT/easel.pro"
+qmake6 "$ROOT/oma-easel.pro"
 make -j"$(nproc)"
 
-echo "Built $ROOT/build/easel"
+echo "Built $ROOT/build/oma-easel"

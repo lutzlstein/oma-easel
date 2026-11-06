@@ -20,7 +20,7 @@
 #include "studio.h"
 #include "themelibrary.h"
 
-class EaselTests : public QObject {
+class OmaEaselTests : public QObject {
     Q_OBJECT
 
 private slots:
@@ -163,7 +163,7 @@ private slots:
         QCOMPARE(Backends::preferred({{"codex", true, ""}, Backends::manual()}), QString("codex"));
         const QString steps = Backends::manualSteps("nord", 2);
         QVERIFY(steps.contains("Attach the 2 reference image(s)"));
-        QVERIFY(steps.contains("easel import <file> --theme nord"));
+        QVERIFY(steps.contains("oma-easel import <file> --theme nord"));
         QVERIFY(!Backends::manualSteps("nord", 0).contains("Attach"));
     }
 
@@ -432,8 +432,8 @@ private slots:
         // The stock background can't be removed; the added one can.
         studio.removeBackground(paths.stockThemes + "/nord/backgrounds/1-fjord.png");
         QVERIFY(QFileInfo::exists(paths.stockThemes + "/nord/backgrounds/1-fjord.png"));
-        QVERIFY(studio.message().contains("wasn't added by easel"));
-        QVERIFY(studio.backgrounds().first().toMap().value("easel").toBool());
+        QVERIFY(studio.message().contains("wasn't added by Oma Easel"));
+        QVERIFY(studio.backgrounds().first().toMap().value("added").toBool());
 
         studio.removeBackground(exported);
         QVERIFY(!QFileInfo::exists(exported));
@@ -498,7 +498,7 @@ private slots:
     void settingsPersist()
     {
         QTemporaryDir dir;
-        const QString file = dir.filePath("easel/settings.json");
+        const QString file = dir.filePath("oma-easel/settings.json");
         {
             Settings settings(file);
             QCOMPARE(settings.openaiModel(), QString(Settings::defaultOpenaiModel));
@@ -529,7 +529,7 @@ private slots:
               "  lookup) [ -f '" + store.toUtf8() + "' ] && cat '" + store.toUtf8() + "' || exit 1 ;;\n"
               "  clear) rm -f '" + store.toUtf8() + "' ;;\nesac\n");
         QVERIFY(QFile::setPermissions(dir.filePath("secret-tool"), QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
-        qputenv("EASEL_SECRET_TOOL", dir.filePath("secret-tool").toUtf8());
+        qputenv("OMA_EASEL_SECRET_TOOL", dir.filePath("secret-tool").toUtf8());
         const QByteArray previous = qgetenv("GEMINI_API_KEY");
         qunsetenv("GEMINI_API_KEY");
 
@@ -547,7 +547,7 @@ private slots:
 
         if (!previous.isEmpty())
             qputenv("GEMINI_API_KEY", previous);
-        qunsetenv("EASEL_SECRET_TOOL");
+        qunsetenv("OMA_EASEL_SECRET_TOOL");
     }
 
     void exportsJpegAndCopiesToExtraFolder()
@@ -620,5 +620,5 @@ private:
     }
 };
 
-QTEST_MAIN(EaselTests)
-#include "easel_tests.moc"
+QTEST_MAIN(OmaEaselTests)
+#include "oma_easel_tests.moc"

@@ -11,8 +11,8 @@
 #include <QSet>
 
 namespace {
-// The floating window's title, so easel can tell when it has been closed.
-const char *windowTitle = "Easel preview";
+// The floating window's title, so Oma Easel can tell when it has been closed.
+const char *windowTitle = "Oma Easel preview";
 }
 
 PreviewSession::PreviewSession(const Commands &commands, QObject *parent)
@@ -93,7 +93,7 @@ bool PreviewSession::start(const QString &image, const QString &label, QString *
         return false;
     }
 
-    // Where to come back to: easel's own window and workspace.
+    // Where to come back to: Oma Easel's own window and workspace.
     const qint64 pid = QCoreApplication::applicationPid();
     for (const QJsonValue &value : QJsonDocument::fromJson(hyprctl({"clients", "-j"})).array()) {
         const QJsonObject client = value.toObject();
@@ -153,7 +153,7 @@ void PreviewSession::finish(bool keep) {
         m_watcher.removePaths(m_watcher.directories());
     if (!keep && !m_previousBackground.isEmpty() && QFileInfo(m_previousBackground).isFile())
         setBackground(m_previousBackground);
-    // Close the prompt if it is still open, then go back to easel.
+    // Close the prompt if it is still open, then go back to Oma Easel.
     dispatch(QString("hl.dsp.window.close({ window = \"title:^%1$\" })").arg(windowTitle));
     if (!m_returnWorkspace.isEmpty())
         dispatch(QString("hl.dsp.focus({ workspace = \"%1\" })").arg(m_returnWorkspace));

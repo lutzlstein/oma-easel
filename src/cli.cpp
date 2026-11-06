@@ -29,7 +29,7 @@ QTextStream &out() {
 }
 
 int failure(const QString &message) {
-    QTextStream(stderr) << "easel: " << message << Qt::endl;
+    QTextStream(stderr) << "oma-easel: " << message << Qt::endl;
     return 1;
 }
 
@@ -38,7 +38,7 @@ void printJson(const QJsonValue &value) {
     out() << document.toJson(QJsonDocument::Indented) << Qt::flush;
 }
 
-// Parses a subcommand's own options; "easel generate --help" shows them.
+// Parses a subcommand's own options; "oma-easel generate --help" shows them.
 bool parse(QCommandLineParser &parser, const QStringList &arguments, QString *error) {
     parser.setSingleDashWordOptionMode(QCommandLineParser::ParseAsLongOptions);
     parser.addOption({"json", "Print JSON."});
@@ -58,12 +58,12 @@ std::optional<ThemeInfo> loadTheme(const ThemeLibrary &library, const QString &r
     }
     auto theme = library.load(slug);
     if (!theme)
-        *error = QString("No installed theme called \"%1\". Run `easel themes` to list them.").arg(slug);
+        *error = QString("No installed theme called \"%1\". Run `oma-easel themes` to list them.").arg(slug);
     return theme;
 }
 
 // A reference is a file path, a background file name from the theme, or the
-// background's 1-based position in `easel theme`.
+// background's 1-based position in `oma-easel theme`.
 QString resolveReference(const QString &reference, const ThemeInfo &theme) {
     if (QFileInfo(reference).isFile())
         return QFileInfo(reference).absoluteFilePath();
@@ -112,7 +112,7 @@ std::optional<Brief> readBrief(const QCommandLineParser &parser, const Paths &pa
 void addBriefOptions(QCommandLineParser &parser) {
     parser.addPositionalArgument("theme", "Theme slug or name; the current theme when left out.");
     parser.addOption({"prompt", "The scene to paint.", "text"});
-    parser.addOption({"ref", "Style reference: a file, a background name, or its number in `easel theme`. "
+    parser.addOption({"ref", "Style reference: a file, a background name, or its number in `oma-easel theme`. "
                              "Repeatable.", "reference"});
 }
 
@@ -152,7 +152,7 @@ int theme(const QStringList &arguments, const Paths &paths) {
     for (auto it = info->colors.begin(); it != info->colors.end(); ++it)
         out() << "  " << it.key() << " " << it.value() << "\n";
     const auto added = Library(paths).addedBackgrounds(info->slug);
-    out() << "\nBackgrounds (* added by easel):\n";
+    out() << "\nBackgrounds (* added by Oma Easel):\n";
     for (int i = 0; i < info->backgrounds.size(); ++i)
         out() << (added.contains(info->backgrounds.at(i)) ? "* " : "  ") << i + 1 << ". " << info->backgrounds.at(i) << "\n";
     out() << "\nNew backgrounds go in " << info->userBackgroundDirectory << "\n" << Qt::flush;
@@ -222,8 +222,8 @@ int generate(const QStringList &arguments, const Paths &paths) {
         if (status.name == backend && !status.available)
             return failure(status.detail);
     if (backend == "manual")
-        return failure("No image generator is set up. Use `easel prompt` to get a prompt for another image platform, "
-                       "then `easel import` the result.");
+        return failure("No image generator is set up. Use `oma-easel prompt` to get a prompt for another image platform, "
+                       "then `oma-easel import` the result.");
 
     const QJsonObject batchInfo{{"scene", scene},
                                 {"prompt", prompt},
@@ -335,7 +335,7 @@ int import(const QStringList &arguments, const Paths &paths) {
     parser.addPositionalArgument("files", "Images made elsewhere.", "<file>...");
     parser.addOption({"theme", "Theme the images are for; the current theme when left out.", "theme"});
     parser.addOption({"prompt", "The scene, used to name the background when kept.", "text"});
-    // Not --platform: Qt claims that option for itself before easel sees it.
+    // Not --platform: Qt claims that option for itself before Oma Easel sees it.
     parser.addOption({"source", "Where the images were made (ChatGPT, Gemini, ...), recorded with them.", "name"});
     QString error;
     if (!parse(parser, arguments, &error))
@@ -373,7 +373,7 @@ int import(const QStringList &arguments, const Paths &paths) {
 
 int keep(const QStringList &arguments, const Paths &paths) {
     QCommandLineParser parser;
-    parser.addPositionalArgument("candidate", "A candidate PNG printed by `easel generate`.");
+    parser.addPositionalArgument("candidate", "A candidate PNG printed by `oma-easel generate`.");
     parser.addOption({"name", "Words for the file name; the scene when left out.", "name"});
     QString error;
     if (!parse(parser, arguments, &error))
@@ -384,7 +384,7 @@ int keep(const QStringList &arguments, const Paths &paths) {
 
     const QString themeSlug = Library::readBatch(QFileInfo(candidate).absolutePath()).value("theme").toString();
     if (themeSlug.isEmpty())
-        return failure(candidate + " is not part of an easel batch.");
+        return failure(candidate + " is not part of an Oma Easel batch.");
     const auto info = loadTheme(ThemeLibrary(paths), themeSlug, &error);
     if (!info)
         return failure(error);
@@ -405,7 +405,7 @@ int keep(const QStringList &arguments, const Paths &paths) {
 namespace {
 int remove(const QStringList &arguments, const Paths &paths) {
     QCommandLineParser parser;
-    parser.addPositionalArgument("background", "A background easel added: its path, file name, or number in `easel theme`.");
+    parser.addPositionalArgument("background", "A background Oma Easel added: its path, file name, or number in `oma-easel theme`.");
     parser.addOption({"theme", "The theme it belongs to; the current theme when left out.", "theme"});
     QString error;
     if (!parse(parser, arguments, &error))
@@ -434,7 +434,7 @@ bool Cli::handles(const QStringList &arguments) {
 }
 
 QString Cli::usage() {
-    return "Usage: easel [open [theme]] | easel <command> [options]\n\n"
+    return "Usage: oma-easel [open [theme]] | oma-easel <command> [options]\n\n"
            "  open [theme]           Open the window (the default)\n"
            "  themes                 List installed Omarchy themes\n"
            "  theme [theme]          Show a theme's colors and backgrounds\n"
@@ -449,14 +449,14 @@ QString Cli::usage() {
            "  keep <candidate> [--name \"...\"]\n"
            "                         Keep a candidate as a background for its theme\n"
            "  remove <background> [--theme ...]\n"
-           "                         Move a background easel added to the trash\n\n"
-           "Every command takes --json. Run `easel <command> --help` for its options.\n";
+           "                         Move a background Oma Easel added to the trash\n\n"
+           "Every command takes --json. Run `oma-easel <command> --help` for its options.\n";
 }
 
 int Cli::run(const QStringList &arguments, const Paths &paths) {
     const QString command = arguments.value(1);
     // QCommandLineParser expects the program name first, so each subcommand
-    // sees "easel <its options>".
+    // sees "oma-easel <its options>".
     QStringList rest = arguments.mid(2);
     rest.prepend(arguments.value(0));
     if (command == "themes")

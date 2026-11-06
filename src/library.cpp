@@ -55,7 +55,7 @@ QStringList Library::importInto(const QString &batch, const QStringList &files, 
         const QImage image(file);
         if (image.isNull()) {
             if (error)
-                *error = "Not an image easel can read: " + file;
+                *error = "Not an image Oma Easel can read: " + file;
             return {};
         }
         const QString candidate = candidatePath(batch, index++);
@@ -226,13 +226,13 @@ QHash<QString, QString> Library::addedBackgrounds(const QString &themeSlug) cons
     return added;
 }
 
-// Only backgrounds easel added can be removed, and they go to the trash
+// Only backgrounds Oma Easel added can be removed, and they go to the trash
 // rather than being deleted, so a mistake can be undone from the file manager.
 bool Library::remove(const QString &exported, const QString &themeSlug, QString *error) const {
     const QHash<QString, QString> added = addedBackgrounds(themeSlug);
     if (!added.contains(exported)) {
         if (error)
-            *error = QFileInfo(exported).fileName() + " wasn't added by easel, so easel won't remove it.";
+            *error = QFileInfo(exported).fileName() + " wasn't added by Oma Easel, so it won't be removed.";
         return false;
     }
     const QString master = added.value(exported);

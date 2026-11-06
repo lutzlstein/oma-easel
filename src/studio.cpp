@@ -136,11 +136,11 @@ QVariantList Studio::backgrounds() const {
         list.append(QVariantMap{{"path", path},
                                 {"name", QFileInfo(path).fileName()},
                                 {"selected", m_references.contains(path)},
-                                {"easel", added.contains(path)}});
+                                {"added", added.contains(path)}});
     return list;
 }
 
-// Takes a background easel added out of the theme's cycle. If the desktop is
+// Takes a background Oma Easel added out of the theme's cycle. If the desktop is
 // showing it, the desktop moves to another of the theme's backgrounds first.
 void Studio::removeBackground(const QString &path) {
     const QString currentLink = m_options.preview.currentBackgroundLink.isEmpty()

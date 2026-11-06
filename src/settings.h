@@ -5,7 +5,7 @@
 #include <QVariantMap>
 
 // What the user chose in the models & export menu, kept in
-// ~/.config/easel/settings.json. API keys are not here; they live in the
+// ~/.config/oma-easel/settings.json. API keys are not here; they live in the
 // desktop keyring (see KeyStore).
 class Settings : public QObject {
     Q_OBJECT
