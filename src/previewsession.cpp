@@ -84,7 +84,7 @@ QString PreviewSession::promptScript(const QString &label, const QString &result
         .arg(quotedLabel, quotedResult);
 }
 
-bool PreviewSession::start(const QString &image, const QString &label, QString *error) {
+bool PreviewSession::start(const QString &image, const QString &label, QString *error, const QString &monitor) {
     if (m_active)
         finish(false);
     m_work = std::make_unique<QTemporaryDir>();
@@ -106,7 +106,12 @@ bool PreviewSession::start(const QString &image, const QString &label, QString *
     m_previousBackground = QFileInfo(m_commands.currentBackgroundLink).symLinkTarget();
 
     setBackground(image);
+    if (!monitor.isEmpty())
+        dispatch(QString("hl.dsp.focus({ monitor = \"%1\" })").arg(monitor));
     dispatch(QString("hl.dsp.focus({ workspace = \"%1\" })").arg(workspace));
+    // An empty workspace can still belong to another monitor.
+    if (!monitor.isEmpty())
+        dispatch(QString("hl.dsp.workspace.move({ workspace = \"%1\", monitor = \"%2\" })").arg(workspace).arg(monitor));
 
     const QString script = m_work->filePath("prompt.sh");
     QFile file(script);

@@ -27,7 +27,7 @@ ApplicationWindow {
     property bool quitting: false
     function quitNow() { quitting = true; Qt.quit() }
     readonly property bool typing: sceneField.activeFocus || varyField.activeFocus || (win.activeFocusItem instanceof TextInput)
-    readonly property bool overlayOpen: help.visible || quitDialog.visible || varyCard.visible || removeCard.visible
+    readonly property bool overlayOpen: help.visible || quitDialog.visible || varyCard.visible || removeCard.visible || pairCard.visible
                                         || runCard.visible || stopCard.visible
 
     function clampSelection() {
@@ -73,6 +73,7 @@ ApplicationWindow {
         if (screenshotOpen === "settings") settingsDrawer.open()
         else if (screenshotOpen === "history") history.open()
         else if (screenshotOpen === "help") help.open()
+        else if (screenshotOpen === "batch" && studio.history.length > 0) studio.openBatch(studio.history[0].batch)
     }
 
     Connections {
@@ -80,6 +81,7 @@ ApplicationWindow {
         function onCandidatesChanged() { win.clampSelection() }
         function onThemeChanged() { win.selected = 0 }
         function onSelectCandidate(index) { win.selected = index; grid.forceActiveFocus() }
+        function onPairNeeded(index) { pairCard.index = index; pairCard.open() }
     }
 
     onClosing: (close) => {
@@ -106,8 +108,9 @@ ApplicationWindow {
     Shortcut { sequence: "C"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: studio.copyPrompt() }
     Shortcut { sequence: "Left"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.move(-1) }
     Shortcut { sequence: "Right"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.move(1) }
-    Shortcut { sequence: "Up"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.move(-grid.columns) }
-    Shortcut { sequence: "Down"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.move(grid.columns) }
+    Shortcut { sequence: "Up"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.move(-grid.columnsAt(win.selected)) }
+    Shortcut { sequence: "Down"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.move(grid.columnsAt(win.selected)) }
+    Shortcut { sequence: "O"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: if (win.canUse(win.selected)) studio.companion(win.selected) }
     Shortcut { sequences: ["/", "Ctrl+L"]; enabled: !win.overlayOpen; context: Qt.ApplicationShortcut; onActivated: sceneField.forceActiveFocus() }
     Shortcut {
         sequence: "Escape"; enabled: !varyCard.visible; context: Qt.ApplicationShortcut
@@ -115,6 +118,7 @@ ApplicationWindow {
             if (help.visible) help.close()
             else if (quitDialog.visible) quitDialog.close()
             else if (removeCard.visible) removeCard.close()
+            else if (pairCard.visible) pairCard.close()
             else if (history.visible) history.close()
             else if (settingsDrawer.visible) settingsDrawer.close()
             else if (studio.busy) win.requestStop()
@@ -261,7 +265,7 @@ ApplicationWindow {
                         path: modelData.path
                         chosen: modelData.selected
                         dimmed: studio.references.length > 0 && !modelData.selected
-                        caption: modelData.added ? qsTr("added") : ""
+                        caption: [modelData.added ? qsTr("added") : "", ...modelData.variants].filter(x => x).join(" · ")
                         removable: modelData.added
                         onClicked: studio.toggleReference(modelData.path)
                         onRemoveRequested: { removeCard.path = modelData.path; removeCard.open() }
@@ -299,12 +303,22 @@ ApplicationWindow {
                     onAccepted: { grid.forceActiveFocus(); win.requestGenerate() }
                     Keys.onEscapePressed: grid.forceActiveFocus()
                 }
-                OText { text: qsTr("candidates"); muted: true; visible: !studio.manual }
+                OText { text: studio.enabledDisplays > 1 ? qsTr("per screen") : qsTr("candidates"); muted: true; visible: !studio.manual }
                 OStepper {
                     visible: !studio.manual
                     from: 1; to: 6
                     value: studio.count
                     onModified: (value) => studio.count = value
+                }
+                // Which screens to compose for; each shape gets its own grid.
+                Repeater {
+                    model: studio.manual || studio.displays.length < 2 ? [] : studio.displays
+                    OButton {
+                        required property var modelData
+                        text: (modelData.monitors ? modelData.monitors + " " : "") + modelData.ratio
+                        primary: modelData.enabled
+                        onClicked: studio.toggleDisplay(modelData.key)
+                    }
                 }
                 OButton {
                     primary: true
@@ -371,102 +385,96 @@ ApplicationWindow {
                 muted: true
             }
 
-            // The batch. Columns are chosen so the candidates come out as large
-            // as the space allows, down to one per row.
-            GridView {
+            // The batch, one section per screen shape side by side. Each
+            // section picks its columns so its candidates come out as large as
+            // its share of the space allows.
+            Item {
                 id: grid
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                clip: true
                 focus: true
-                model: studio.candidates
-                currentIndex: win.selected
+                clip: true
 
-                readonly property int columns: {
-                    const n = Math.max(1, count)
-                    let best = 1, bestWidth = 0
-                    for (let c = 1; c <= n; ++c) {
+                readonly property real headerHeight: studio.sections.length > 1 ? 28 * s.spacing : 0
+                // The best layout of n tiles of one aspect in a w x h box.
+                function fit(n, w, h, aspect) {
+                    let best = { columns: 1, width: 0 }
+                    for (let c = 1; c <= Math.max(1, n); ++c) {
                         const rows = Math.ceil(n / c)
-                        const w = Math.min(width / c, height / rows * studio.aspect)
-                        if (w > bestWidth + 0.5) { best = c; bestWidth = w }
+                        const tw = Math.min(w / c, h / rows * aspect)
+                        if (tw > best.width + 0.5) best = { columns: c, width: tw }
                     }
-                    return best
+                    return { columns: best.columns, width: Math.floor(best.width), height: Math.floor(best.width / aspect) }
                 }
-                readonly property int rows: Math.max(1, Math.ceil(count / columns))
-                cellWidth: Math.floor(Math.min(width / columns, height / rows * studio.aspect))
-                cellHeight: Math.floor(cellWidth / studio.aspect)
-                // Center the grid when the cells don't fill the width.
-                leftMargin: Math.max(0, (width - cellWidth * columns) / 2)
+                // How much of the width each section gets. Two sections search
+                // for the split where both sets of tiles are as large as they
+                // can be together; more share it evenly.
+                readonly property var shares: {
+                    const list = studio.sections
+                    const h = height - headerHeight
+                    if (list.length <= 1) return [1]
+                    if (list.length > 2) return list.map(() => 1 / list.length)
+                    let best = 0.5, bestScore = -Infinity
+                    for (let f = 0.15; f <= 0.851; f += 0.01) {
+                        const a = fit(list[0].indices.length, width * f, h, list[0].aspect)
+                        const b = fit(list[1].indices.length, width * (1 - f), h, list[1].aspect)
+                        if (a.width <= 0 || b.width <= 0) continue
+                        const score = Math.log(a.width * a.height) + Math.log(b.width * b.height)
+                        if (score > bestScore) { bestScore = score; best = f }
+                    }
+                    return [best, 1 - best]
+                }
+                function sectionOf(index) {
+                    const list = studio.sections
+                    for (let i = 0; i < list.length; ++i)
+                        if (list[i].indices.indexOf(index) !== -1) return i
+                    return 0
+                }
+                function columnsAt(index) {
+                    const i = sectionOf(index)
+                    const section = studio.sections[i]
+                    if (!section) return 1
+                    return fit(section.indices.length, width * shares[i], height - headerHeight, section.aspect).columns
+                }
+                function positionViewAtIndex() {}
 
-                delegate: Item {
-                    id: cell
-                    required property var modelData
-                    required property int index
-                    readonly property bool isSelected: index === win.selected
-                    readonly property bool hasImage: modelData.state === "ready" || modelData.state === "kept"
-                    width: grid.cellWidth
-                    height: grid.cellHeight
+                Row {
+                    anchors.fill: parent
+                    Repeater {
+                        model: studio.sections
+                        Item {
+                            id: section
+                            required property var modelData
+                            required property int index
+                            width: grid.width * (grid.shares[index] || 0)
+                            height: grid.height
+                            readonly property var layout: grid.fit(modelData.indices.length, width, height - grid.headerHeight, modelData.aspect)
 
-                    Rectangle {
-                        id: frame
-                        anchors.fill: parent
-                        anchors.margins: win.gap / 2
-                        radius: theme.radius
-                        color: Qt.alpha(s.controlColor, s.normalFill)
-                        border.width: cell.isSelected ? 2 : s.borderWidth
-                        border.color: cell.isSelected ? s.border : Qt.alpha(s.controlColor, s.normalBorderAlpha)
-                        clip: true
-
-                        Image {
-                            anchors.fill: parent
-                            anchors.margins: parent.border.width
-                            visible: cell.hasImage
-                            source: visible ? "file://" + modelData.path : ""
-                            sourceSize.width: 1600
-                            fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
-                            cache: false
-                        }
-                        OText {
-                            anchors.centerIn: parent
-                            visible: modelData.state === "pending"
-                            text: qsTr("generating") + ".".repeat(dots.count)
-                            muted: true
-                            Timer { id: dots; property int count: 1; interval: 450; repeat: true; running: parent.visible; onTriggered: count = count % 3 + 1 }
-                        }
-                        OText {
-                            anchors.fill: parent
-                            anchors.margins: 16
-                            visible: modelData.state === "failed"
-                            text: modelData.error
-                            wrapMode: Text.Wrap
-                            elide: Text.ElideRight
-                            color: s.accent
-                            verticalAlignment: Text.AlignVCenter
-                            horizontalAlignment: Text.AlignHCenter
-                        }
-                        Row {
-                            anchors.top: parent.top; anchors.left: parent.left; anchors.margins: 10
-                            spacing: 6
-                            Badge { visible: modelData.state === "kept"; text: qsTr("kept") }
-                            Badge { visible: modelData.reference; text: qsTr("reference") }
-                            Badge { visible: studio.previewing === cell.index; text: qsTr("previewing") }
-                        }
-
-                        HoverHandler { id: cellHover }
-                        TapHandler { onTapped: { win.selected = cell.index; grid.forceActiveFocus() } }
-                        TapHandler { onDoubleTapped: studio.preview(cell.index) }
-
-                        // Mouse actions, mirroring the keys, while hovered or selected.
-                        Row {
-                            anchors.bottom: parent.bottom; anchors.right: parent.right; anchors.margins: 10
-                            spacing: 6
-                            visible: cell.hasImage && (cellHover.hovered || cell.isSelected)
-                            OButton { keyHint: "enter"; text: qsTr("keep"); visible: modelData.state === "ready"; onClicked: studio.keep(cell.index); solid: true }
-                            OButton { keyHint: "v"; text: qsTr("vary"); onClicked: win.askVary(cell.index); solid: true }
-                            OButton { keyHint: "r"; text: modelData.reference ? qsTr("unreference") : qsTr("reference"); onClicked: studio.toggleReference(modelData.path); solid: true }
-                            OButton { keyHint: "p"; text: qsTr("preview"); onClicked: studio.preview(cell.index); solid: true }
-                            OButton { keyHint: "d"; text: qsTr("discard"); onClicked: studio.discard(cell.index); solid: true }
+                            OText {
+                                visible: grid.headerHeight > 0
+                                x: (section.width - tiles.width) / 2 + win.gap / 2
+                                height: grid.headerHeight
+                                verticalAlignment: Text.AlignVCenter
+                                text: (section.modelData.monitors ? section.modelData.monitors + " · " : "") + section.modelData.ratio
+                                      + (section.modelData.primary ? "" : qsTr(" · versions"))
+                                muted: true
+                            }
+                            Grid {
+                                id: tiles
+                                y: grid.headerHeight
+                                x: (section.width - width) / 2
+                                columns: section.layout.columns
+                                Repeater {
+                                    model: section.modelData.indices
+                                    CandidateTile {
+                                        required property var modelData
+                                        index: modelData
+                                        candidate: studio.candidates[modelData] || ({})
+                                        width: section.layout.width
+                                        height: section.layout.height
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -505,6 +513,7 @@ ApplicationWindow {
                     KeyHint { key: "space"; label: qsTr("generate") }
                     KeyHint { key: "enter"; label: qsTr("keep") }
                     KeyHint { key: "v"; label: qsTr("vary") }
+                    KeyHint { key: "o"; label: qsTr("companion"); visible: studio.displays.length > 1 }
                     KeyHint { key: "r"; label: qsTr("reference") }
                     KeyHint { key: "p"; label: qsTr("preview") }
                     KeyHint { key: "h"; label: qsTr("history") }
@@ -513,6 +522,83 @@ ApplicationWindow {
             }
         }
     }
+
+    // One candidate in the batch, with its actions on hover or selection.
+    component CandidateTile: Item {
+                    id: cell
+                    property var candidate
+                    property int index
+                    readonly property var modelData: candidate
+                    readonly property bool isSelected: index === win.selected
+                    readonly property bool hasImage: modelData.state === "ready" || modelData.state === "kept"
+
+                    Rectangle {
+                        id: frame
+                        anchors.fill: parent
+                        anchors.margins: win.gap / 2
+                        radius: theme.radius
+                        color: Qt.alpha(s.controlColor, s.normalFill)
+                        border.width: cell.isSelected ? 2 : s.borderWidth
+                        border.color: cell.isSelected ? s.border : Qt.alpha(s.controlColor, s.normalBorderAlpha)
+                        clip: true
+
+                        Image {
+                            anchors.fill: parent
+                            anchors.margins: parent.border.width
+                            visible: cell.hasImage
+                            source: visible ? "file://" + modelData.path : ""
+                            sourceSize.width: modelData.aspect < 1 ? 900 : 1600
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            cache: false
+                        }
+                        OText {
+                            anchors.centerIn: parent
+                            visible: modelData.state === "pending"
+                            text: qsTr("generating") + ".".repeat(dots.count)
+                            muted: true
+                            Timer { id: dots; property int count: 1; interval: 450; repeat: true; running: parent.visible; onTriggered: count = count % 3 + 1 }
+                        }
+                        OText {
+                            anchors.fill: parent
+                            anchors.margins: 16
+                            visible: modelData.state === "failed"
+                            text: modelData.error
+                            wrapMode: Text.Wrap
+                            elide: Text.ElideRight
+                            color: s.accent
+                            verticalAlignment: Text.AlignVCenter
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+                        Row {
+                            anchors.top: parent.top; anchors.left: parent.left; anchors.margins: 10
+                            spacing: 6
+                            Badge { visible: modelData.state === "kept"; text: qsTr("kept") }
+                            Badge { visible: modelData.reference; text: qsTr("reference") }
+                            Badge { visible: studio.previewing === cell.index; text: qsTr("previewing") }
+                        }
+
+                        HoverHandler { id: cellHover }
+                        TapHandler { onTapped: { win.selected = cell.index; grid.forceActiveFocus() } }
+                        TapHandler { onDoubleTapped: studio.preview(cell.index) }
+
+                        // Mouse actions, mirroring the keys, while hovered or selected.
+                        // Wraps upward on narrow tiles, such as portrait ones.
+                        Flow {
+                            anchors.bottom: parent.bottom; anchors.right: parent.right; anchors.margins: 10
+                            width: parent.width - 20
+                            layoutDirection: Qt.RightToLeft
+                            spacing: 6
+                            visible: cell.hasImage && (cellHover.hovered || cell.isSelected)
+                            OButton { keyHint: "enter"; text: modelData.variant ? qsTr("keep %1").arg(modelData.ratio) : qsTr("keep"); visible: modelData.state === "ready"; onClicked: studio.keep(cell.index); solid: true }
+                            OButton { keyHint: "o"; text: qsTr("companion"); visible: studio.displays.length > 1 && !studio.manual; onClicked: studio.companion(cell.index); solid: true }
+                            OButton { keyHint: "v"; text: qsTr("vary"); onClicked: win.askVary(cell.index); solid: true }
+                            OButton { keyHint: "r"; text: modelData.reference ? qsTr("unreference") : qsTr("reference"); onClicked: studio.toggleReference(modelData.path); solid: true }
+                            OButton { keyHint: "p"; text: qsTr("preview"); onClicked: studio.preview(cell.index); solid: true }
+                            OButton { keyHint: "d"; text: qsTr("discard"); onClicked: studio.discard(cell.index); solid: true }
+                        }
+                    }
+                }
 
     component Badge: Rectangle {
         property alias text: label.text
@@ -731,8 +817,8 @@ ApplicationWindow {
                             model: batchItem.modelData.candidates
                             Thumbnail {
                                 required property var modelData
-                                width: (batchItem.width - 6) / 2
-                                height: width / studio.aspect
+                                width: modelData.aspect < 1 ? (batchItem.width - 18) / 4 : (batchItem.width - 6) / 2
+                                height: width / (modelData.aspect || studio.aspect)
                                 path: modelData.path
                                 chosen: modelData.reference
                                 caption: modelData.keptAs ? qsTr("kept") : ""
@@ -774,6 +860,40 @@ ApplicationWindow {
         }
     }
 
+    // Keeping a candidate made for another screen shape: which background
+    // is it a version of?
+    Card {
+        id: pairCard
+        property int index: -1
+        width: Math.min(win.width * 0.7, 900 * s.spacing)
+        onClosed: grid.forceActiveFocus()
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 12 * s.spacing
+            OText {
+                text: qsTr("Which background is this %1 version for?").arg(studio.candidates[pairCard.index] ? studio.candidates[pairCard.index].ratio : "")
+                size: 1.167
+            }
+            OText { text: qsTr("It is shown on screens of its shape, and replaces any version that background already has."); muted: true }
+            Flow {
+                Layout.fillWidth: true
+                spacing: win.gap
+                Repeater {
+                    model: studio.backgrounds
+                    Thumbnail {
+                        required property var modelData
+                        width: 200 * s.spacing
+                        height: width / studio.aspect
+                        path: modelData.path
+                        caption: modelData.variants.length > 0 ? qsTr("has %1").arg(modelData.variants.join(", ")) : modelData.name
+                        onClicked: { studio.keepVariant(pairCard.index, modelData.path); pairCard.close() }
+                    }
+                }
+            }
+            KeyHint { key: "esc"; label: qsTr("cancel") }
+        }
+    }
+
     Card {
         id: help
         ColumnLayout {
@@ -784,6 +904,7 @@ ApplicationWindow {
                     ["enter", qsTr("Keep the selected candidate")],
                     ["d", qsTr("Discard the selected candidate")],
                     ["v", qsTr("Vary: say what to change, or esc for fresh takes")],
+                    ["o", qsTr("Companion: the same scene composed for your other screens")],
                     ["r", qsTr("Use the selected candidate as a reference")],
                     ["p", qsTr("Preview on an empty workspace")],
                     ["h", qsTr("History of earlier batches")],
@@ -857,7 +978,7 @@ ApplicationWindow {
 
     ConfirmCard {
         id: runCard
-        heading: qsTr("Generate %n candidate(s) for %1?", "", studio.count).arg(studio.themeName)
+        heading: qsTr("Generate %n candidate(s) for %1?", "", studio.count * studio.enabledDisplays).arg(studio.themeName)
         detail: "“" + studio.scene.trim() + "”"
                 + (studio.references.length > 0 ? "\n" + qsTr("%n reference(s)", "", studio.references.length) : "")
                 + "\n" + qsTr("with %1").arg(studio.backend)

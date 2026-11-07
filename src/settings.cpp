@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QSaveFile>
 #include <algorithm>
@@ -18,6 +19,15 @@ Settings::Settings(const QString &file, QObject *parent) : QObject(parent), m_fi
     m_exportFormat = json.value("exportFormat").toString("webp");
     m_exportQuality = std::clamp(json.value("exportQuality").toInt(85), 40, 100);
     m_extraFolders = json.value("extraExportFolders").toObject().toVariantMap();
+    for (const QJsonValue &value : json.value("skippedShapes").toArray())
+        m_skippedShapes << value.toString();
+}
+
+void Settings::setSkippedShapes(const QStringList &keys) {
+    if (keys == m_skippedShapes)
+        return;
+    m_skippedShapes = keys;
+    save();
 }
 
 QString Settings::extraExportFolder(const QString &themeSlug) const {
@@ -80,7 +90,8 @@ void Settings::save() {
                                {"geminiModel", m_geminiModel},
                                {"exportFormat", m_exportFormat},
                                {"exportQuality", m_exportQuality},
-                               {"extraExportFolders", QJsonObject::fromVariantMap(m_extraFolders)}};
+                               {"extraExportFolders", QJsonObject::fromVariantMap(m_extraFolders)},
+                               {"skippedShapes", QJsonArray::fromStringList(m_skippedShapes)}};
         output.write(QJsonDocument(json).toJson(QJsonDocument::Indented));
         output.commit();
     }

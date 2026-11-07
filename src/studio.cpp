@@ -8,7 +8,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QDirIterator>
 #include <QGuiApplication>
+#include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QMap>
@@ -21,7 +23,13 @@
 Studio::Studio(const Paths &paths, const Options &options, QObject *parent)
     : QObject(parent), m_paths(paths), m_options(options), m_settings(paths.settings), m_library(paths), m_store(paths),
       m_preview(options.preview) {
-    m_target = m_options.target ? *m_options.target : Screens::target(Screens::query());
+    if (!m_options.shapes.isEmpty())
+        m_shapes = m_options.shapes;
+    else if (m_options.target)
+        m_shapes = {*m_options.target};
+    else
+        m_shapes = Screens::shapes(Screens::query());
+    m_target = m_shapes.first();
 
     if (!m_options.backend.isEmpty())
         m_backend = m_options.backend;
@@ -167,7 +175,88 @@ QVariantList Studio::backgrounds() const {
         list.append(QVariantMap{{"path", path},
                                 {"name", QFileInfo(path).fileName()},
                                 {"selected", m_references.contains(path)},
-                                {"added", added.contains(path)}});
+                                {"added", added.contains(path)},
+                                {"variants", Library::variantsOf(m_theme, path)}});
+    return list;
+}
+
+QList<Target> Studio::enabledShapes() const {
+    QList<Target> shapes;
+    for (const Target &shape : m_shapes)
+        if (!m_settings.skippedShapes().contains(shape.key()))
+            shapes << shape;
+    if (shapes.isEmpty())
+        shapes << m_target;
+    return shapes;
+}
+
+Target Studio::shapeFor(const QString &key) const {
+    for (const Target &shape : m_shapes)
+        if (shape.key() == key)
+            return shape;
+    return m_target;
+}
+
+QVariantList Studio::displays() const {
+    const QList<Target> enabled = enabledShapes();
+    QVariantList list;
+    for (const Target &shape : m_shapes) {
+        bool on = false;
+        for (const Target &other : enabled)
+            on = on || other.key() == shape.key();
+        list.append(QVariantMap{{"key", shape.key()},
+                                {"ratio", shape.ratio()},
+                                {"size", QString("%1x%2").arg(shape.width).arg(shape.height)},
+                                {"monitors", shape.monitors.join(", ")},
+                                {"aspect", shape.aspect()},
+                                {"primary", shape.key() == m_target.key()},
+                                {"enabled", on}});
+    }
+    return list;
+}
+
+// At least one shape stays on, or Generate would have nothing to make.
+void Studio::toggleDisplay(const QString &key) {
+    QStringList skipped = m_settings.skippedShapes();
+    if (!skipped.removeOne(key)) {
+        if (enabledShapes().size() <= 1)
+            return;
+        skipped << key;
+    }
+    m_settings.setSkippedShapes(skipped);
+    emit displaysChanged();
+}
+
+bool Studio::isVariant(const Candidate &candidate) const {
+    return candidate.target.key() != m_target.key();
+}
+
+// The batch on screen, one section per shape, the main shape first.
+QVariantList Studio::sections() const {
+    QStringList order{m_target.key()};
+    for (const Candidate &candidate : m_candidates)
+        if (!order.contains(candidate.target.key()))
+            order << candidate.target.key();
+    QVariantList list;
+    for (const QString &key : order) {
+        QVariantList indices;
+        Target shape;
+        for (int i = 0; i < m_candidates.size(); ++i)
+            if (m_candidates.at(i).target.key() == key) {
+                indices << i;
+                shape = m_candidates.at(i).target;
+            }
+        if (indices.isEmpty())
+            continue;
+        if (shape.monitors.isEmpty())
+            shape.monitors = shapeFor(key).monitors;
+        list.append(QVariantMap{{"key", key},
+                                {"ratio", shape.ratio()},
+                                {"aspect", shape.aspect()},
+                                {"monitors", shape.monitors.join(", ")},
+                                {"primary", key == m_target.key()},
+                                {"indices", indices}});
+    }
     return list;
 }
 
@@ -229,7 +318,12 @@ QVariantList Studio::candidates() const {
                                 {"state", candidate.state},
                                 {"error", candidate.error},
                                 {"keptAs", candidate.keptAs},
-                                {"reference", m_references.contains(candidate.path)}});
+                                {"reference", m_references.contains(candidate.path)},
+                                {"shape", candidate.target.key()},
+                                {"ratio", candidate.target.ratio()},
+                                {"aspect", candidate.target.aspect()},
+                                {"monitors", candidate.target.monitors.join(", ")},
+                                {"variant", isVariant(candidate)}});
     return list;
 }
 
@@ -326,9 +420,10 @@ void Studio::reloadBackgrounds() {
 // which candidates were kept and as what.
 QHash<QString, QString> Studio::keptCandidates() const {
     QHash<QString, QString> kept;
-    const QDir masters(m_paths.data + "/" + m_theme.slug);
-    for (const QString &name : masters.entryList({"*.json"}, QDir::Files)) {
-        QFile file(masters.filePath(name));
+    // Versions for other screen shapes keep their sidecars in shape folders.
+    QDirIterator it(m_paths.data + "/" + m_theme.slug, {"*.json"}, QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        QFile file(it.next());
         if (!file.open(QIODevice::ReadOnly))
             continue;
         const QJsonObject sidecar = QJsonDocument::fromJson(file.readAll()).object();
@@ -351,6 +446,7 @@ void Studio::reloadHistory() {
         for (const QString &file : QDir(batch).entryList({"candidate-*.png"}, QDir::Files, QDir::Name)) {
             const QString path = QDir(batch).filePath(file);
             images.append(QVariantMap{{"path", path},
+                                      {"aspect", Library::targetFor(path, m_target).aspect()},
                                       {"keptAs", kept.value(path)},
                                       {"reference", m_references.contains(path)}});
         }
@@ -379,25 +475,41 @@ void Studio::toggleReference(const QString &path) {
     emit candidatesChanged();
     reloadHistory();
     if (!m_manualPrompt.isEmpty()) {
-        m_manualPrompt = buildPrompt();
+        m_manualPrompt = buildPrompt(m_target);
         m_manualSteps = Backends::manualSteps(m_theme.slug, m_references.size());
         emit manualPromptChanged();
     }
 }
 
-QString Studio::buildPrompt() const {
-    return PromptBuilder::build(m_scene, m_theme.colors, m_references.size(), m_target, m_change);
+QString Studio::buildPrompt(const Target &target, bool recompose) const {
+    return PromptBuilder::build(m_scene, m_theme.colors, m_references.size(), target, recompose ? QString() : m_change,
+                                recompose);
 }
 
-QJsonObject Studio::batchInfo(const QString &backend) const {
+// How a batch was made. Each shape records its own prompt, and each
+// candidate which shape it is for, so keeping one later sizes it right.
+QJsonObject Studio::batchInfo(const QString &backend, const QList<Target> &shapes, int count, bool recompose) const {
+    const QList<Target> made = shapes.isEmpty() ? QList<Target>{m_target} : shapes;
+    QJsonArray shapeList;
+    QJsonObject byCandidate;
+    int index = 0;
+    for (const Target &shape : made) {
+        QJsonObject json = shape.toJson();
+        json.insert("prompt", buildPrompt(shape, recompose));
+        shapeList.append(json);
+        for (int i = 0; i < count; ++i)
+            byCandidate.insert(QFileInfo(Library::candidatePath({}, index++)).fileName(), shape.key());
+    }
     return {{"scene", m_scene.trimmed()},
-            {"change", m_change},
-            {"prompt", buildPrompt()},
+            {"change", recompose ? QString() : m_change},
+            {"prompt", buildPrompt(made.first(), recompose)},
+            {"shapes", shapeList},
+            {"candidateShapes", byCandidate},
             {"references", QJsonArray::fromStringList(m_references)},
             {"backend", backend},
             {"model", backend == "openai" ? m_settings.openaiModel() : backend == "gemini" ? m_settings.geminiModel() : QString()},
             {"theme", m_theme.slug},
-            {"target", m_target.toJson()},
+            {"target", made.first().toJson()},
             {"createdAt", QDateTime::currentDateTime().toString(Qt::ISODate)}};
 }
 
@@ -413,36 +525,50 @@ void Studio::generate() {
     // and wait for images to be imported.
     if (manual()) {
         m_batch.clear();
-        m_manualPrompt = buildPrompt();
+        m_manualPrompt = buildPrompt(m_target);
         m_manualSteps = Backends::manualSteps(m_theme.slug, m_references.size());
         emit manualPromptChanged();
         setMessage(tr("Copy the prompt into an image platform, then import or drop the result here."));
         return;
     }
 
+    startBatch(enabledShapes(), false, {});
+}
+
+// One batch with `m_count` candidates for each shape. A companion batch
+// recomposes `companionOf` for the other shapes instead of making new scenes.
+void Studio::startBatch(const QList<Target> &shapes, bool recompose, const QString &companionOf) {
     QString error;
-    m_batch = m_store.createBatch(m_theme.slug, batchInfo(m_backend), &error);
+    QJsonObject info = batchInfo(m_backend, shapes, m_count, recompose);
+    if (!companionOf.isEmpty())
+        info.insert("companionOf", companionOf);
+    m_batch = m_store.createBatch(m_theme.slug, info, &error);
     if (m_batch.isEmpty()) {
         setMessage(error);
         return;
     }
     m_candidates.clear();
     m_batchScene = m_scene.trimmed();
-    m_batchChange = m_change;
-    const QString prompt = buildPrompt();
-    for (int i = 0; i < m_count; ++i) {
-        const QString path = Library::candidatePath(m_batch, i);
-        m_candidates.append({path, "pending", {}, {}});
-        Generator *generator = Backends::create(m_backend, m_settings, m_target, m_options.codex, m_paths.codexImages, this, &error);
-        if (!generator) {
-            m_candidates.last().state = "failed";
-            m_candidates.last().error = error;
-            continue;
+    m_batchChange = recompose ? QString() : m_change;
+    const int total = m_count * int(shapes.size());
+    int index = 0;
+    for (const Target &shape : shapes) {
+        const QString prompt = buildPrompt(shape, recompose);
+        for (int i = 0; i < m_count; ++i) {
+            const QString path = Library::candidatePath(m_batch, index++);
+            m_candidates.append({path, "pending", {}, {}, shape});
+            Generator *generator =
+                Backends::create(m_backend, m_settings, shape, m_options.codex, m_paths.codexImages, this, &error);
+            if (!generator) {
+                m_candidates.last().state = "failed";
+                m_candidates.last().error = error;
+                continue;
+            }
+            m_jobs.append({generator, m_theme.slug, m_batch, m_batchScene, path, total, QDateTime::currentDateTime()});
+            connect(generator, &Generator::finished, this, [this, generator](const QString &) { jobEnded(generator, true, {}); });
+            connect(generator, &Generator::failed, this, [this, generator](const QString &error) { jobEnded(generator, false, error); });
+            generator->start({prompt, m_references, path});
         }
-        m_jobs.append({generator, m_theme.slug, m_batch, m_batchScene, path, m_count, QDateTime::currentDateTime()});
-        connect(generator, &Generator::finished, this, [this, generator](const QString &) { jobEnded(generator, true, {}); });
-        connect(generator, &Generator::failed, this, [this, generator](const QString &error) { jobEnded(generator, false, error); });
-        generator->start({prompt, m_references, path});
     }
     m_clock.start();
     emit activityChanged();
@@ -450,7 +576,7 @@ void Studio::generate() {
     // clears for the next idea.
     m_scene.clear();
     emit sceneChanged();
-    setMessage(tr("Generating %n candidate(s)…", "", m_count));
+    setMessage(tr("Generating %n candidate(s)…", "", total));
     emit candidatesChanged();
 }
 
@@ -516,13 +642,39 @@ void Studio::jobEnded(Generator *generator, bool ok, const QString &error) {
     emit activityChanged();
 }
 
+// Which kept background a candidate for another shape belongs with: the one
+// its companion batch was made from, or else the only main image kept from
+// its own batch. Anything less clear is left to the user.
+QString Studio::pairFor(int index) const {
+    const QHash<QString, QString> kept = keptCandidates();
+    const QString source = Library::readBatch(m_batch).value("companionOf").toString();
+    const QString fromSource = kept.value(source);
+    if (!fromSource.isEmpty() && QFileInfo(fromSource).absolutePath() == QFileInfo(m_theme.userBackgroundDirectory).absoluteFilePath())
+        return fromSource;
+    QStringList mains;
+    for (int i = 0; i < m_candidates.size(); ++i)
+        if (i != index && m_candidates.at(i).state == "kept" && !isVariant(m_candidates.at(i)))
+            mains << m_candidates.at(i).keptAs;
+    return mains.size() == 1 ? mains.first() : QString();
+}
+
 void Studio::keep(int index, const QString &name) {
     if (index < 0 || index >= m_candidates.size() || m_candidates.at(index).state != "ready")
         return;
+    if (isVariant(m_candidates.at(index))) {
+        const QString background = pairFor(index);
+        if (background.isEmpty()) {
+            setMessage(tr("Choose the background this %1 version belongs to.").arg(m_candidates.at(index).target.ratio()));
+            emit pairNeeded(index);
+            return;
+        }
+        keepVariant(index, background);
+        return;
+    }
     QString error;
     const Library::ExportOptions options{m_settings.exportFormat(), m_settings.exportQuality(),
                                          m_settings.extraExportFolder(m_theme.slug)};
-    const auto kept = m_store.keep(m_candidates.at(index).path, m_theme, m_target, name, &error, options);
+    const auto kept = m_store.keep(m_candidates.at(index).path, m_theme, m_candidates.at(index).target, name, &error, options);
     if (!kept) {
         setMessage(error);
         return;
@@ -533,6 +685,31 @@ void Studio::keep(int index, const QString &name) {
     reloadBackgrounds();
     reloadHistory();
     setMessage(tr("Kept as %1. It's now in %2's background cycle.").arg(QFileInfo(kept->exported).fileName(), m_theme.name));
+}
+
+void Studio::keepVariant(int index, const QString &background) {
+    if (index < 0 || index >= m_candidates.size() || background.isEmpty())
+        return;
+    const Candidate candidate = m_candidates.at(index);
+    if (candidate.state != "ready" && candidate.state != "kept")
+        return;
+    QString error;
+    const Library::ExportOptions options{m_settings.exportFormat(), m_settings.exportQuality(),
+                                         m_settings.extraExportFolder(m_theme.slug)};
+    const auto kept = m_store.keep(candidate.path, m_theme, candidate.target, {}, &error, options, background);
+    if (!kept) {
+        setMessage(error);
+        return;
+    }
+    m_candidates[index].state = "kept";
+    m_candidates[index].keptAs = kept->exported;
+    emit candidatesChanged();
+    reloadBackgrounds();
+    reloadHistory();
+    setMessage(tr("Saved as the %1 version of %2, for %3.")
+                   .arg(candidate.target.ratio(), QFileInfo(background).fileName(),
+                        candidate.target.monitors.isEmpty() ? candidate.target.ratio() + " screens"
+                                                            : candidate.target.monitors.join(", ")));
 }
 
 void Studio::discard(int index) {
@@ -567,10 +744,43 @@ void Studio::vary(int index, const QString &change) {
         m_scene = m_batchScene;
         emit sceneChanged();
     }
+    const Target shape = m_candidates.at(index).target;
     m_references = {m_candidates.at(index).path};
     emit referencesChanged();
     m_change = change.trimmed();
-    generate();
+    // Variations keep the shape of the candidate they start from.
+    if (manual() || m_scene.trimmed().isEmpty() || busy())
+        generate();
+    else
+        startBatch({shape}, false, {});
+}
+
+void Studio::companion(int index) {
+    if (index < 0 || index >= m_candidates.size() || busy())
+        return;
+    const Candidate source = m_candidates.at(index);
+    if (source.state != "ready" && source.state != "kept")
+        return;
+    if (manual()) {
+        setMessage(tr("Companions need an image model. Choose one under models & export."));
+        return;
+    }
+    QList<Target> others;
+    for (const Target &shape : m_shapes)
+        if (shape.key() != source.target.key())
+            others << shape;
+    if (others.isEmpty()) {
+        setMessage(tr("All your screens share this shape, so there's nothing to compose a companion for."));
+        return;
+    }
+    if (m_scene.trimmed().isEmpty()) {
+        m_scene = m_batchScene;
+        emit sceneChanged();
+    }
+    m_references = {source.path};
+    m_change.clear();
+    emit referencesChanged();
+    startBatch(others, true, source.path);
 }
 
 void Studio::preview(int index) {
@@ -580,8 +790,10 @@ void Studio::preview(int index) {
     if (candidate.state != "ready" && candidate.state != "kept")
         return;
     const QString path = candidate.state == "kept" ? candidate.keptAs : candidate.path;
+    // A version for another shape is previewed on a monitor of that shape.
+    const QString monitor = isVariant(candidate) ? candidate.target.monitors.value(0) : QString();
     QString error;
-    if (!m_preview.start(path, m_batchScene.isEmpty() ? QFileInfo(path).fileName() : m_batchScene, &error)) {
+    if (!m_preview.start(path, m_batchScene.isEmpty() ? QFileInfo(path).fileName() : m_batchScene, &error, monitor)) {
         setMessage(error);
         return;
     }
@@ -595,6 +807,16 @@ void Studio::preview(int index) {
 // rather than at a cache that may be cleared.
 void Studio::previewDecided(bool keep) {
     const int index = m_previewing;
+    // Omarchy shows one background on every screen, so a version for another
+    // shape is kept without becoming the desktop background.
+    if (index >= 0 && index < m_candidates.size() && isVariant(m_candidates.at(index))) {
+        m_preview.finish(false);
+        m_previewing = -1;
+        emit previewChanged();
+        if (keep && m_candidates.at(index).state == "ready")
+            this->keep(index);
+        return;
+    }
     if (keep && index >= 0 && index < m_candidates.size()) {
         if (m_candidates.at(index).state == "ready")
             this->keep(index);
@@ -641,11 +863,11 @@ QList<Studio::Candidate> Studio::candidatesFor(const QString &batch) const {
     for (const QString &file : QDir(batch).entryList({"candidate-*.png"}, QDir::Files)) {
         const QString path = QDir(batch).filePath(file);
         const QString keptAs = kept.value(path);
-        byPath.insert(path, {path, keptAs.isEmpty() ? "ready" : "kept", {}, keptAs});
+        byPath.insert(path, {path, keptAs.isEmpty() ? "ready" : "kept", {}, keptAs, Library::targetFor(path, m_target)});
     }
     for (const Job &job : m_jobs)
         if (job.batch == batch)
-            byPath.insert(job.path, {job.path, "pending", {}, {}});
+            byPath.insert(job.path, {job.path, "pending", {}, {}, Library::targetFor(job.path, m_target)});
     // candidate-10 sorts after candidate-9.
     QList<Candidate> list = byPath.values();
     std::sort(list.begin(), list.end(), [](const Candidate &a, const Candidate &b) {
@@ -657,7 +879,7 @@ QList<Studio::Candidate> Studio::candidatesFor(const QString &batch) const {
 
 void Studio::copyPrompt() {
     if (m_manualPrompt.isEmpty())
-        m_manualPrompt = buildPrompt();
+        m_manualPrompt = buildPrompt(m_target);
     QGuiApplication::clipboard()->setText(m_manualPrompt);
     setMessage(tr("Prompt copied."));
 }
@@ -719,8 +941,19 @@ void Studio::importFiles(const QStringList &files) {
     }
     if (newBatch)
         m_candidates.clear();
-    for (const QString &path : imported)
-        m_candidates.append({path, "ready", {}, {}});
+    // An imported image is for whichever of the user's shapes it is closest to.
+    for (const QString &path : imported) {
+        const QSize size = QImageReader(path).size();
+        Target shape = m_target;
+        if (size.isValid() && size.height() > 0) {
+            const double aspect = double(size.width()) / size.height();
+            for (const Target &other : m_shapes)
+                if (std::abs(other.aspect() - aspect) < std::abs(shape.aspect() - aspect))
+                    shape = other;
+        }
+        Library::recordShape(path, shape);
+        m_candidates.append({path, "ready", {}, {}, shape});
+    }
     emit candidatesChanged();
     reloadHistory();
     setMessage(tr("Imported %n image(s).", "", imported.size()));

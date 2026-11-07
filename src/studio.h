@@ -53,6 +53,12 @@ class Studio : public QObject {
     Q_PROPERTY(QString exportSize READ exportSize CONSTANT)
     Q_PROPERTY(double aspect READ aspect CONSTANT)
     Q_PROPERTY(int previewing READ previewing NOTIFY previewChanged)
+    // The shapes of the user's screens, each its own grid when generating:
+    // [{key, ratio, size, monitors, aspect, primary, enabled}].
+    Q_PROPERTY(QVariantList displays READ displays NOTIFY displaysChanged)
+    // The batch on screen, grouped by shape: [{key, ratio, aspect, monitors, primary, indices}].
+    Q_PROPERTY(QVariantList sections READ sections NOTIFY candidatesChanged)
+    Q_PROPERTY(int enabledDisplays READ enabledDisplays NOTIFY displaysChanged)
     // Generation still running, for every theme, so switching themes never
     // hides or stops it: [{theme, themeName, batch, scene, pending, total, seconds}].
     Q_PROPERTY(QVariantList activity READ activity NOTIFY activityChanged)
@@ -65,6 +71,7 @@ public:
         bool detectBackends = true;
         QString backend;                 // tests force one instead of detecting
         std::optional<Target> target;    // tests pass one instead of asking hyprctl
+        QList<Target> shapes;            // or several, the first being the main shape
     };
 
     explicit Studio(const Paths &paths, const Options &options, QObject *parent = nullptr);
@@ -100,6 +107,9 @@ public:
     QString exportSize() const { return QString("%1x%2").arg(m_target.width).arg(m_target.height); }
     double aspect() const { return m_target.aspect(); }
     int previewing() const { return m_previewing; }
+    QVariantList displays() const;
+    QVariantList sections() const;
+    int enabledDisplays() const { return enabledShapes().size(); }
     QVariantList activity() const;
     bool anyRunning() const;
 
@@ -116,6 +126,11 @@ public:
     Q_INVOKABLE void keep(int index, const QString &name = {});
     Q_INVOKABLE void discard(int index);
     Q_INVOKABLE void vary(int index, const QString &change = {});
+    // The same scene, composed again for each of the other screen shapes.
+    Q_INVOKABLE void companion(int index);
+    // Saves a candidate made for another shape as `background`'s version.
+    Q_INVOKABLE void keepVariant(int index, const QString &background);
+    Q_INVOKABLE void toggleDisplay(const QString &key);
     Q_INVOKABLE void preview(int index);
     Q_INVOKABLE void endPreview();
     Q_INVOKABLE void removeBackground(const QString &path);
@@ -141,6 +156,10 @@ signals:
     void previewChanged();
     void activityChanged();
     void selectCandidate(int index);
+    void displaysChanged();
+    // A candidate for another shape is being kept and which background it
+    // belongs to isn't known; the window asks.
+    void pairNeeded(int index);
 
 private:
     // One image being generated. Jobs belong to their batch, not to the
@@ -160,12 +179,19 @@ private:
         QString state;   // "pending", "ready", "failed", "kept"
         QString error;
         QString keptAs;
+        Target target;   // the screen shape it was made for
     };
 
     void setMessage(const QString &message);
     void reloadBackgrounds();
-    QString buildPrompt() const;
-    QJsonObject batchInfo(const QString &backend) const;
+    QString buildPrompt(const Target &target, bool recompose = false) const;
+    QJsonObject batchInfo(const QString &backend, const QList<Target> &shapes = {}, int count = 0,
+                          bool recompose = false) const;
+    void startBatch(const QList<Target> &shapes, bool recompose, const QString &companionOf);
+    QList<Target> enabledShapes() const;
+    Target shapeFor(const QString &key) const;
+    bool isVariant(const Candidate &candidate) const;
+    QString pairFor(int index) const;
     bool ensureManualBatch();
     void stopJobs(const QString &batch = {});
     void jobEnded(Generator *generator, bool ok, const QString &error);
@@ -182,7 +208,8 @@ private:
     QList<BackendStatus> m_statuses;
     ThemeLibrary m_library;
     Library m_store;
-    Target m_target;
+    Target m_target;          // the main shape, m_shapes.first()
+    QList<Target> m_shapes;
     ThemeInfo m_theme;
     QStringList m_references;
     QString m_scene;

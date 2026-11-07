@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QProcess>
 #include <QRegularExpression>
@@ -43,6 +44,22 @@ QJsonObject Library::readBatch(const QString &batch) {
     if (!file.open(QIODevice::ReadOnly))
         return {};
     return QJsonDocument::fromJson(file.readAll()).object();
+}
+
+void Library::recordShape(const QString &candidate, const Target &target) {
+    const QString batch = QFileInfo(candidate).absolutePath();
+    QJsonObject info = readBatch(batch);
+    QJsonArray shapes = info.value("shapes").toArray();
+    bool known = false;
+    for (const QJsonValue &value : shapes)
+        known = known || value.toObject().value("key").toString() == target.key();
+    if (!known)
+        shapes.append(target.toJson());
+    QJsonObject byCandidate = info.value("candidateShapes").toObject();
+    byCandidate.insert(QFileInfo(candidate).fileName(), target.key());
+    info.insert("shapes", shapes);
+    info.insert("candidateShapes", byCandidate);
+    writeJson(batch + "/batch.json", info);
 }
 
 // Brings images made elsewhere into a batch as candidates, after any it
@@ -105,9 +122,51 @@ int Library::nextNumber(const QStringList &fileNames) {
     return std::max(highest, int(names.size())) + 1;
 }
 
+Target Library::targetFor(const QString &candidate, const Target &fallback) {
+    const QJsonObject batch = readBatch(QFileInfo(candidate).absolutePath());
+    const QString key = batch.value("candidateShapes").toObject().value(QFileInfo(candidate).fileName()).toString();
+    for (const QJsonValue &value : batch.value("shapes").toArray())
+        if (value.toObject().value("key").toString() == key)
+            return Target::fromJson(value.toObject());
+    if (batch.contains("target"))
+        return Target::fromJson(batch.value("target").toObject());
+    return fallback;
+}
+
+namespace {
+// A background's version for one shape, whatever format it was exported in.
+QString variantFile(const QString &directory, const QString &base) {
+    const QStringList found = QDir(directory).entryList({base + ".*"}, QDir::Files);
+    for (const QString &name : found)
+        if (QFileInfo(name).completeBaseName() == base && !name.endsWith(".partial"))
+            return QDir(directory).filePath(name);
+    return {};
+}
+
+bool trash(const QString &path, QString *error) {
+    if (path.isEmpty() || !QFileInfo::exists(path))
+        return true;
+    if (QFile::moveToTrash(path) || QFile::remove(path))
+        return true;
+    if (error)
+        *error = "Could not move " + path + " to the trash.";
+    return false;
+}
+}
+
+QStringList Library::variantsOf(const ThemeInfo &theme, const QString &background) {
+    const QString base = QFileInfo(background).completeBaseName();
+    QStringList keys;
+    static const QRegularExpression shapeFolder("^\\d+x\\d+$");
+    for (const QString &folder : QDir(theme.userBackgroundDirectory).entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name))
+        if (shapeFolder.match(folder).hasMatch() && !variantFile(theme.userBackgroundDirectory + "/" + folder, base).isEmpty())
+            keys << folder;
+    return keys;
+}
+
 std::optional<Library::Kept> Library::keep(const QString &candidate, const ThemeInfo &theme,
                                            const Target &target, const QString &name, QString *error,
-                                           const ExportOptions &options) const {
+                                           const ExportOptions &options, const QString &variantOf) const {
     auto failWith = [error](const QString &message) {
         if (error)
             *error = message;
@@ -117,24 +176,38 @@ std::optional<Library::Kept> Library::keep(const QString &candidate, const Theme
         return failWith("No candidate at " + candidate);
 
     const QJsonObject batch = readBatch(QFileInfo(candidate).absolutePath());
-    const QString masterDirectory = m_paths.data + "/" + theme.slug;
-    if (!QDir().mkpath(masterDirectory) || !QDir().mkpath(theme.userBackgroundDirectory))
-        return failWith("Could not create " + masterDirectory + " or " + theme.userBackgroundDirectory);
+    const bool variant = !variantOf.isEmpty();
+    const QString shapeFolder = variant ? "/" + target.key() : QString();
+    const QString masterDirectory = m_paths.data + "/" + theme.slug + shapeFolder;
+    const QString exportDirectory = theme.userBackgroundDirectory + shapeFolder;
+    if (!QDir().mkpath(masterDirectory) || !QDir().mkpath(exportDirectory))
+        return failWith("Could not create " + masterDirectory + " or " + exportDirectory);
 
-    // Numbers continue after both the theme's backgrounds and earlier
-    // masters, so a master and its export always share a name.
-    QStringList existing = theme.backgrounds;
-    for (const QString &file : QDir(masterDirectory).entryList({"*.png"}, QDir::Files))
-        existing << file;
-    const QString base = QString("%1-%2")
-                             .arg(nextNumber(existing))
-                             .arg(slugify(name.isEmpty() ? batch.value("scene").toString() : name));
+    QString base;
+    if (variant) {
+        // A version takes its background's name; an earlier version for the
+        // same shape goes to the trash.
+        base = QFileInfo(variantOf).completeBaseName();
+        for (const QString &old : {variantFile(exportDirectory, base), masterDirectory + "/" + base + ".png",
+                                   masterDirectory + "/" + base + ".json"})
+            if (!trash(old, error))
+                return std::nullopt;
+    } else {
+        // Numbers continue after both the theme's backgrounds and earlier
+        // masters, so a master and its export always share a name.
+        QStringList existing = theme.backgrounds;
+        for (const QString &file : QDir(masterDirectory).entryList({"*.png"}, QDir::Files))
+            existing << file;
+        base = QString("%1-%2")
+                   .arg(nextNumber(existing))
+                   .arg(slugify(name.isEmpty() ? batch.value("scene").toString() : name));
+    }
 
     Kept kept;
     kept.master = masterDirectory + "/" + base + ".png";
     kept.sidecar = masterDirectory + "/" + base + ".json";
     const QString extension = options.format == "jpeg" ? "jpg" : options.format;
-    kept.exported = theme.userBackgroundDirectory + "/" + base + "." + extension;
+    kept.exported = exportDirectory + "/" + base + "." + extension;
     if (QFileInfo::exists(kept.master) || QFileInfo::exists(kept.exported))
         return failWith("A background named " + base + " already exists.");
 
@@ -147,6 +220,8 @@ std::optional<Library::Kept> Library::keep(const QString &candidate, const Theme
     sidecar.insert("keptAt", QDateTime::currentDateTime().toString(Qt::ISODate));
     sidecar.insert("exported", kept.exported);
     sidecar.insert("target", target.toJson());
+    if (variant)
+        sidecar.insert("variantOf", variantOf);
     if (!writeJson(kept.sidecar, sidecar)) {
         QFile::remove(kept.master);
         return failWith("Could not write " + kept.sidecar);
@@ -161,11 +236,14 @@ std::optional<Library::Kept> Library::keep(const QString &candidate, const Theme
     // The optional second copy, under the same name. A failure here doesn't
     // undo the keep; it's reported and the background stays in the theme.
     if (!options.extraFolder.isEmpty()) {
-        const QString copy = options.extraFolder + "/" + QFileInfo(kept.exported).fileName();
-        if (QDir().mkpath(options.extraFolder) && !QFileInfo::exists(copy) && QFile::copy(kept.exported, copy))
+        const QString folder = options.extraFolder + shapeFolder;
+        const QString copy = folder + "/" + QFileInfo(kept.exported).fileName();
+        if (variant)
+            QFile::remove(variantFile(folder, base));
+        if (QDir().mkpath(folder) && !QFileInfo::exists(copy) && QFile::copy(kept.exported, copy))
             kept.extraCopy = copy;
         else if (error)
-            *error = "Kept, but could not copy it to " + options.extraFolder;
+            *error = "Kept, but could not copy it to " + folder;
     }
     return kept;
 }
@@ -236,16 +314,17 @@ bool Library::remove(const QString &exported, const QString &themeSlug, QString 
         return false;
     }
     const QString master = added.value(exported);
-    const QString sidecar = QFileInfo(master).absolutePath() + "/" + QFileInfo(master).completeBaseName() + ".json";
-    for (const QString &path : {exported, master, sidecar}) {
-        if (!QFileInfo::exists(path))
-            continue;
-        if (!QFile::moveToTrash(path) && !QFile::remove(path)) {
-            if (error)
-                *error = "Could not move " + path + " to the trash.";
+    const QString base = QFileInfo(master).completeBaseName();
+    const QString masters = QFileInfo(master).absolutePath();
+    QStringList paths{exported, master, masters + "/" + base + ".json"};
+    // Its versions for other screen shapes go with it.
+    const QString exports = QFileInfo(exported).absolutePath();
+    for (const QString &folder : QDir(exports).entryList(QDir::Dirs | QDir::NoDotAndDotDot))
+        paths << variantFile(exports + "/" + folder, base) << masters + "/" + folder + "/" + base + ".png"
+              << masters + "/" + folder + "/" + base + ".json";
+    for (const QString &path : paths)
+        if (!trash(path, error))
             return false;
-        }
-    }
     return true;
 }
 

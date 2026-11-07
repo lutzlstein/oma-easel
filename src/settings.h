@@ -24,6 +24,9 @@ public:
     QString exportFormat() const { return m_exportFormat; } // "webp", "jpeg", or "png"
     int exportQuality() const { return m_exportQuality; }
     Q_INVOKABLE QString extraExportFolder(const QString &themeSlug) const;
+    // Screen shapes ("9x16") the user turned off in the generate bar.
+    QStringList skippedShapes() const { return m_skippedShapes; }
+    void setSkippedShapes(const QStringList &keys);
 
     void setBackend(const QString &backend);
     void setOpenaiModel(const QString &model);
@@ -48,4 +51,5 @@ private:
     QString m_exportFormat = "webp";
     int m_exportQuality = 85;
     QVariantMap m_extraFolders;
+    QStringList m_skippedShapes;
 };

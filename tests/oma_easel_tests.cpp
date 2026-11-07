@@ -98,6 +98,127 @@ private slots:
         QCOMPARE(none.height, 2160);
     }
 
+    void shapesGroupMonitorsByAspect()
+    {
+        const QList<Target> mixed = Screens::shapes({{"DP-2", 1440, 2560}, {"DP-3", 3440, 1440}});
+        QCOMPARE(mixed.size(), 2);
+        QCOMPARE(mixed.at(0).key(), QString("21x9"));
+        QCOMPARE(mixed.at(0).monitors, QStringList({"DP-3"}));
+        QCOMPARE(mixed.at(0).cropped, QStringList({"DP-2"}));
+        QCOMPARE(mixed.at(1).key(), QString("9x16"));
+        QCOMPARE(mixed.at(1).width, 1440);
+        QCOMPARE(mixed.at(1).height, 2560);
+        QVERIFY(mixed.at(1).portrait());
+
+        // Close shapes share one: 16:9 and 16:10 are both made at 16:10.
+        const QList<Target> close = Screens::shapes({{"A", 1920, 1080}, {"B", 2560, 1600}});
+        QCOMPARE(close.size(), 1);
+        QCOMPARE(close.first().monitors.size(), 2);
+
+        QCOMPARE(Screens::shapes({}).size(), 1);
+        QCOMPARE(Target::fromJson(mixed.at(1).toJson()).key(), QString("9x16"));
+    }
+
+    void portraitPromptsAndCompanions()
+    {
+        const Target portrait{1440, 2560, {}};
+        const QString prompt = PromptBuilder::build("harbor", {}, 0, portrait);
+        QVERIFY(prompt.contains("Tall portrait composition at 9:16 (1440x2560)"));
+        const QString companion = PromptBuilder::build("harbor", {}, 1, portrait, "ignored", true);
+        QVERIFY(companion.contains("Paint the same scene again for a tall portrait screen"));
+        QVERIFY(!companion.contains("ignored"));
+    }
+
+    void generatesForEachShapeAndKeepsVersions()
+    {
+        if (QStandardPaths::findExecutable("magick").isEmpty())
+            QSKIP("ImageMagick is not installed.");
+        QTemporaryDir dir;
+        qputenv("XDG_DATA_HOME", dir.filePath("data-home").toUtf8());
+        const Paths paths = Paths::underRoot(dir.path());
+        write(paths.stockThemes + "/nord/colors.toml", "accent = \"#81a1c1\"\n");
+        write(paths.currentThemeName, "nord\n");
+        QImage image(60, 60, QImage::Format_RGB32);
+        image.fill(Qt::green);
+        QVERIFY(image.save(dir.filePath("fixture.png")));
+        const QString codex = dir.filePath("fake-codex");
+        write(codex, "#!/bin/sh\n"
+                     "while [ $# -gt 0 ]; do [ \"$1\" = --output-last-message ] && out=\"$2\"; shift; done\n"
+                     "dest='" + paths.codexImages.toUtf8() + "'/run-$$/image.png\n"
+                     "mkdir -p \"$(dirname \"$dest\")\" && cp '" + dir.filePath("fixture.png").toUtf8() + "' \"$dest\"\n"
+                     "echo \"$dest\" > \"$out\"\n");
+        QVERIFY(QFile::setPermissions(codex, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+
+        Target wide{120, 50, {}, {"DP-3"}};
+        Target tall{50, 90, {}, {"DP-2"}};
+        Studio::Options options;
+        options.detectBackends = false;
+        options.backend = "codex";
+        options.codex = codex;
+        options.shapes = {wide, tall};
+        Studio studio(paths, options);
+        QCOMPARE(studio.displays().size(), 2);
+        QCOMPARE(studio.enabledDisplays(), 2);
+
+        // One grid per shape, each with its own prompt.
+        studio.setScene("green hills");
+        studio.setCount(2);
+        studio.generate();
+        QCOMPARE(studio.candidates().size(), 4);
+        QTRY_VERIFY_WITH_TIMEOUT(!studio.busy(), 10000);
+        const QVariantList sections = studio.sections();
+        QCOMPARE(sections.size(), 2);
+        QCOMPARE(sections.at(0).toMap().value("key").toString(), QString("21x9"));
+        QCOMPARE(sections.at(1).toMap().value("indices").toList(), QVariantList({2, 3}));
+        QVERIFY(studio.candidates().at(2).toMap().value("variant").toBool());
+        const QString batch = QFileInfo(studio.candidates().at(0).toMap().value("path").toString()).absolutePath();
+        const QJsonObject info = Library::readBatch(batch);
+        QVERIFY(info.value("shapes").toArray().at(1).toObject().value("prompt").toString().contains("Tall portrait"));
+
+        // Keeping the portrait candidate pairs it with the one main image kept.
+        studio.keep(0);
+        const QString main = studio.candidates().at(0).toMap().value("keptAs").toString();
+        QVERIFY(main.endsWith("/nord/1-green-hills.webp"));
+        studio.keep(2);
+        const QString version = studio.candidates().at(2).toMap().value("keptAs").toString();
+        QCOMPARE(version, paths.userBackgrounds + "/nord/9x16/1-green-hills.webp");
+        QCOMPARE(QImage(version).size(), QSize(50, 90));
+        QCOMPARE(studio.backgrounds().first().toMap().value("variants").toStringList(), QStringList({"9x16"}));
+        // Versions stay out of the theme's own list, and so out of Omarchy's cycle.
+        QCOMPARE(studio.backgrounds().size(), 1);
+
+        // With two main images kept, the window has to ask.
+        studio.keep(1);
+        QSignalSpy asked(&studio, &Studio::pairNeeded);
+        studio.keep(3);
+        QCOMPARE(asked.size(), 1);
+        studio.keepVariant(3, main);
+        QCOMPARE(studio.candidates().at(3).toMap().value("state").toString(), QString("kept"));
+
+        // A companion recomposes one candidate for the other shapes, and its
+        // results pair with that candidate's background.
+        studio.companion(0);
+        QCOMPARE(studio.candidates().size(), 2);
+        QVERIFY(studio.candidates().at(0).toMap().value("variant").toBool());
+        QTRY_VERIFY_WITH_TIMEOUT(!studio.busy(), 10000);
+        const QString companionBatch = QFileInfo(studio.candidates().at(0).toMap().value("path").toString()).absolutePath();
+        QVERIFY(Library::readBatch(companionBatch).value("prompt").toString().contains("Paint the same scene again"));
+        studio.keep(0);
+        QCOMPARE(studio.candidates().at(0).toMap().value("keptAs").toString(), version);
+
+        // Only one shape on: generating makes just that grid. The last shape
+        // can't be turned off.
+        studio.toggleDisplay("9x16");
+        QCOMPARE(studio.enabledDisplays(), 1);
+        studio.toggleDisplay("21x9");
+        QCOMPARE(studio.enabledDisplays(), 1);
+
+        // Removing a background takes its versions with it.
+        studio.removeBackground(main);
+        QVERIFY(!QFileInfo::exists(version));
+        qunsetenv("XDG_DATA_HOME");
+    }
+
     void promptCarriesSceneColorsAndShape()
     {
         const Target target = Screens::target({{"DP-3", 3440, 1440}});

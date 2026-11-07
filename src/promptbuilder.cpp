@@ -5,22 +5,22 @@
 
 // The nearest familiar ratio reads better in a prompt than 2.39:1.
 QString PromptBuilder::aspectLabel(const Target &target) {
-    struct Ratio { const char *label; double value; };
-    static const Ratio ratios[] = {{"32:9", 32.0 / 9}, {"21:9", 21.0 / 9}, {"16:9", 16.0 / 9},
-                                   {"16:10", 16.0 / 10}, {"3:2", 3.0 / 2}, {"4:3", 4.0 / 3}};
-    const Ratio *best = &ratios[0];
-    for (const Ratio &ratio : ratios)
-        if (std::abs(ratio.value - target.aspect()) < std::abs(best->value - target.aspect()))
-            best = &ratio;
-    return QString::fromLatin1(best->label);
+    return target.ratio();
 }
 
 QString PromptBuilder::build(const QString &scene, const QMap<QString, QString> &colors, int referenceCount,
-                             const Target &target, const QString &change) {
+                             const Target &target, const QString &change, bool recompose) {
     QStringList parts;
     parts << "Create one new desktop wallpaper.";
 
-    if (!change.trimmed().isEmpty() && referenceCount >= 1)
+    if (recompose && referenceCount >= 1)
+        parts << QString("The first attached image is a finished wallpaper made for a screen of another shape. "
+                         "Paint the same scene again for a %1 screen: keep its subject, setting, medium, "
+                         "brushwork, palette, and lighting, and arrange them to fill the new frame naturally. "
+                         "Do not crop, stretch, or pad the original.")
+                     .arg(target.portrait() ? "tall portrait" : "wide landscape") +
+                 (referenceCount > 1 ? QString(" Any other attached images are style references only.") : QString());
+    else if (!change.trimmed().isEmpty() && referenceCount >= 1)
         parts << "The first attached image is the starting point. Keep its composition, medium, and palette, and "
                  "change only this: " + change.trimmed() + "." +
                      (referenceCount > 1 ? QString(" Any other attached images are style references only.") : QString());
@@ -44,9 +44,11 @@ QString PromptBuilder::build(const QString &scene, const QMap<QString, QString> 
                  "dominate: " + palette.join(", ") + ".";
 
     parts << "Scene: " + scene.trimmed();
-    parts << QString("Wide landscape composition at %1 (%2x%3), filling the whole frame. No text, no "
+    const double aspect = target.aspect();
+    const QString shape = aspect > 1.1 ? "Wide landscape" : aspect < 0.9 ? "Tall portrait" : "Square";
+    parts << QString("%1 composition at %2 (%3x%4), filling the whole frame. No text, no "
                      "lettering, no watermark, no signature, no border.")
-                 .arg(aspectLabel(target))
+                 .arg(shape, aspectLabel(target))
                  .arg(target.width)
                  .arg(target.height);
     return parts.join("\n\n");

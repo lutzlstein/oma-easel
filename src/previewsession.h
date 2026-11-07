@@ -25,7 +25,9 @@ public:
     ~PreviewSession() override;
 
     bool active() const { return m_active; }
-    bool start(const QString &image, const QString &label, QString *error);
+    // With a monitor, the empty workspace opens there, so a background made
+    // for that screen's shape is seen on it.
+    bool start(const QString &image, const QString &label, QString *error, const QString &monitor = {});
     void setBackground(const QString &image);
     void finish(bool keep);
 
