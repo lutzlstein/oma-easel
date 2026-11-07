@@ -32,7 +32,7 @@ int main(int argc, char *argv[]) {
     // file names); the window reads it from Qt.application.displayName.
     app.setApplicationName("oma-easel");
     app.setApplicationDisplayName("Oma Easel");
-    app.setApplicationVersion("0.1.0");
+    app.setApplicationVersion("0.2.0");
 
     if (command)
         return Cli::run(arguments, Paths::defaults());
