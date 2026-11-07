@@ -101,7 +101,9 @@ Oma Easel pairs a version with the background its companion batch was made from,
 
 Any of the theme's backgrounds can have a companion too: hover it in the reference strip and click **companion**. An image that already fits one of your screens is only recomposed for the others, so a 21:9 background gets just a 9:16 version on a 21:9 + 9:16 setup. The new versions pair with that background automatically, stock backgrounds included. Versions are always saved in your user backgrounds, never in the theme's own folder.
 
-Omarchy's background cycle reads only the top folder, so versions never appear in it as backgrounds of their own. Omarchy currently shows one background on every screen, so it doesn't use versions yet; that needs per-screen support in its background renderer. Previewing a version opens it on a monitor of its shape, then puts your current background back.
+Omarchy's background cycle reads only the top folder, so versions never appear in it as backgrounds of their own.
+
+Omarchy's own background renderer shows one image on every screen. [`contrib/`](contrib/README.md) has a patch that makes each screen show the version closest to its shape. With it, previewing a version shows it on its own monitor beside the background it pairs with, and keeping it sets that background, so each screen shows its own shape of the pair. Without it, a version is previewed on every screen, and keeping it puts your current background back.
 
 ## Install
 

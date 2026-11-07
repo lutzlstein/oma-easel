@@ -84,7 +84,20 @@ QString PreviewSession::promptScript(const QString &label, const QString &result
         .arg(quotedLabel, quotedResult);
 }
 
-bool PreviewSession::start(const QString &image, const QString &label, QString *error, const QString &monitor) {
+bool PreviewSession::perScreen() const {
+    QProcess process;
+    process.start(m_commands.shell, {"background", "shown"});
+    if (!process.waitForFinished(3000))
+        return false;
+    return process.readAllStandardOutput().contains('\t');
+}
+
+void PreviewSession::rescanVersions() const {
+    QProcess::startDetached(m_commands.shell, {"-q", "background", "rescanVersions"});
+}
+
+bool PreviewSession::start(const QString &image, const QString &label, QString *error, const QString &monitor,
+                           const QString &paired) {
     if (m_active)
         finish(false);
     m_work = std::make_unique<QTemporaryDir>();
@@ -105,7 +118,14 @@ bool PreviewSession::start(const QString &image, const QString &label, QString *
     const int workspace = emptyWorkspace(hyprctl({"workspaces", "-j"}));
     m_previousBackground = QFileInfo(m_commands.currentBackgroundLink).symLinkTarget();
 
-    setBackground(image);
+    m_screenOnly = !monitor.isEmpty() && perScreen();
+    if (m_screenOnly) {
+        if (!paired.isEmpty())
+            setBackground(paired);
+        QProcess::startDetached(m_commands.shell, {"-q", "background", "setScreen", monitor, image});
+    } else {
+        setBackground(image);
+    }
     if (!monitor.isEmpty())
         dispatch(QString("hl.dsp.focus({ monitor = \"%1\" })").arg(monitor));
     dispatch(QString("hl.dsp.focus({ workspace = \"%1\" })").arg(workspace));
@@ -156,6 +176,10 @@ void PreviewSession::finish(bool keep) {
     m_poll.stop();
     if (!m_watcher.directories().isEmpty())
         m_watcher.removePaths(m_watcher.directories());
+    if (m_screenOnly) {
+        QProcess::startDetached(m_commands.shell, {"-q", "background", "clearScreens"});
+        m_screenOnly = false;
+    }
     if (!keep && !m_previousBackground.isEmpty() && QFileInfo(m_previousBackground).isFile())
         setBackground(m_previousBackground);
     // Close the prompt if it is still open, then go back to Oma Easel.

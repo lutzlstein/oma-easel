@@ -705,6 +705,9 @@ void Studio::keepVariant(int index, const QString &background) {
     }
     m_candidates[index].state = "kept";
     m_candidates[index].keptAs = kept->exported;
+    m_candidates[index].pairedWith = background;
+    // The desktop picks the new version up without a theme switch.
+    m_preview.rescanVersions();
     emit candidatesChanged();
     reloadBackgrounds();
     reloadHistory();
@@ -845,10 +848,14 @@ void Studio::preview(int index) {
     if (candidate.state != "ready" && candidate.state != "kept")
         return;
     const QString path = candidate.state == "kept" ? candidate.keptAs : candidate.path;
-    // A version for another shape is previewed on a monitor of that shape.
-    const QString monitor = isVariant(candidate) ? candidate.target.monitors.value(0) : QString();
+    // A version for another shape is previewed on a monitor of that shape,
+    // beside the background it would belong to.
+    const bool variant = isVariant(candidate);
+    const QString monitor = variant ? candidate.target.monitors.value(0) : QString();
+    const QString paired = !variant ? QString() : candidate.pairedWith.isEmpty() ? pairFor(index) : candidate.pairedWith;
     QString error;
-    if (!m_preview.start(path, m_batchScene.isEmpty() ? QFileInfo(path).fileName() : m_batchScene, &error, monitor)) {
+    if (!m_preview.start(path, m_batchScene.isEmpty() ? QFileInfo(path).fileName() : m_batchScene, &error, monitor,
+                         paired)) {
         setMessage(error);
         return;
     }
@@ -862,14 +869,21 @@ void Studio::preview(int index) {
 // rather than at a cache that may be cleared.
 void Studio::previewDecided(bool keep) {
     const int index = m_previewing;
-    // Omarchy shows one background on every screen, so a version for another
-    // shape is kept without becoming the desktop background.
+    // Keeping a version keeps it and makes its background the desktop's, so
+    // each screen shows its own shape of the pair. Without a background to
+    // pair with yet, the window asks and the old background comes back.
     if (index >= 0 && index < m_candidates.size() && isVariant(m_candidates.at(index))) {
-        m_preview.finish(false);
-        m_previewing = -1;
-        emit previewChanged();
         if (keep && m_candidates.at(index).state == "ready")
             this->keep(index);
+        const QString paired = m_candidates.at(index).state == "kept" ? m_candidates.at(index).pairedWith : QString();
+        if (keep && !paired.isEmpty())
+            m_preview.setBackground(paired);
+        m_preview.finish(keep && !paired.isEmpty());
+        m_previewing = -1;
+        emit previewChanged();
+        if (keep && !paired.isEmpty())
+            setMessage(tr("Background set, with its %1 version on %2.")
+                           .arg(m_candidates.at(index).target.ratio(), m_candidates.at(index).target.monitors.join(", ")));
         return;
     }
     if (keep && index >= 0 && index < m_candidates.size()) {

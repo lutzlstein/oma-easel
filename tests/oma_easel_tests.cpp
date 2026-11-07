@@ -156,6 +156,7 @@ private slots:
         options.backend = "codex";
         options.codex = codex;
         options.shapes = {wide, tall};
+        options.preview.shell = "true";
         Studio studio(paths, options);
         QCOMPARE(studio.displays().size(), 2);
         QCOMPARE(studio.enabledDisplays(), 2);
@@ -252,6 +253,7 @@ private slots:
         options.backend = "codex";
         options.codex = codex;
         options.shapes = {Target{120, 50, {}, {"DP-3"}}, Target{50, 90, {}, {"DP-2"}}};
+        options.preview.shell = "true";
         Studio studio(paths, options);
 
         QCOMPARE(studio.companionPlan(wideBackground), QString("DP-2 9:16"));
@@ -482,6 +484,73 @@ private slots:
             QCOMPARE(sets.at(1), dir.filePath("previous.png"));
         }
         QVERIFY(lines(hyprLog).join('\n').contains("hl.dsp.focus({ workspace = \"1\" })"));
+    }
+
+    // A version is previewed on its own monitor beside the background it
+    // pairs with; keeping it sets that background, so each screen shows its
+    // own shape of the pair.
+    void previewShowsVersionOnItsScreen()
+    {
+        if (QStandardPaths::findExecutable("magick").isEmpty())
+            QSKIP("ImageMagick is not installed.");
+        QTemporaryDir dir;
+        const Paths paths = Paths::underRoot(dir.path());
+        write(paths.stockThemes + "/nord/colors.toml", "accent = \"#81a1c1\"\n");
+        write(paths.currentThemeName, "nord\n");
+        QDir().mkpath(paths.stockThemes + "/nord/backgrounds");
+        QImage wide(240, 100, QImage::Format_RGB32);
+        wide.fill(Qt::blue);
+        const QString background = paths.stockThemes + "/nord/backgrounds/1-fjord.png";
+        QVERIFY(wide.save(background));
+        write(dir.filePath("previous.png"), "x");
+        QVERIFY(QFile::link(dir.filePath("previous.png"), dir.filePath("background")));
+
+        const QString setLog = dir.filePath("set.log"), shellLog = dir.filePath("shell.log");
+        auto script = [&](const QString &name, const QByteArray &body) {
+            write(dir.filePath(name), "#!/bin/sh\n" + body);
+            QVERIFY(QFile::setPermissions(dir.filePath(name), QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+        };
+        script("bg-set", "echo \"$1\" >> '" + setLog.toUtf8() + "'\n");
+        script("hyprctl", "echo '[]'\n");
+        script("terminal", "echo k | PATH=/nonexistent /bin/bash \"$5\"\n");
+        // A renderer that shows versions per screen answers `background shown`.
+        script("shell", "echo \"$*\" >> '" + shellLog.toUtf8() + "'\n"
+                        "[ \"$2\" = shown ] && printf 'DP-2\\tx\\nDP-3\\ty\\n'\nexit 0\n");
+
+        Studio::Options options;
+        options.detectBackends = false;
+        options.shapes = {Target{120, 50, {}, {"DP-3"}}, Target{50, 90, {}, {"DP-2"}}};
+        options.preview = {dir.filePath("hyprctl"), dir.filePath("bg-set"), dir.filePath("terminal"),
+                           dir.filePath("background"), dir.filePath("shell")};
+        Studio studio(paths, options);
+        QImage tall(50, 90, QImage::Format_RGB32);
+        tall.fill(Qt::red);
+        QVERIFY(tall.save(dir.filePath("tall.png")));
+        studio.setScene("fjord");
+        studio.importFiles({dir.filePath("tall.png")});
+        QVERIFY(studio.candidates().at(0).toMap().value("variant").toBool());
+
+        // Nothing pairs automatically here, so preview leaves the desktop's
+        // background alone and puts the candidate on DP-2 only; keeping asks.
+        QSignalSpy asked(&studio, &Studio::pairNeeded);
+        studio.preview(0);
+        QTRY_COMPARE(studio.previewing(), -1);
+        QCOMPARE(asked.size(), 1);
+        auto lines = [](const QString &path) {
+            QFile file(path);
+            return file.open(QIODevice::ReadOnly) ? QString::fromUtf8(file.readAll()).trimmed().split('\n') : QStringList();
+        };
+        QTRY_VERIFY(lines(shellLog).join('\n').contains("clearScreens"));
+        QVERIFY(lines(shellLog).join('\n').contains("-q background setScreen DP-2 " + studio.candidates().at(0).toMap().value("path").toString()));
+        QTRY_COMPARE(lines(setLog), QStringList({dir.filePath("previous.png")}));
+
+        // Once paired, previewing again and keeping sets the pair.
+        studio.keepVariant(0, background);
+        QTRY_VERIFY(lines(shellLog).join('\n').contains("rescanVersions"));
+        studio.preview(0);
+        QTRY_COMPARE(studio.previewing(), -1);
+        QTRY_VERIFY(lines(setLog).contains(background));
+        QCOMPARE(lines(setLog).last(), background);
     }
 
     void historyRemembersBatchesAndPrompts()

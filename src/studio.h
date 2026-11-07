@@ -187,6 +187,7 @@ private:
         QString error;
         QString keptAs;
         Target target;   // the screen shape it was made for
+        QString pairedWith;   // for a kept version, the background it belongs to
     };
 
     void setMessage(const QString &message);

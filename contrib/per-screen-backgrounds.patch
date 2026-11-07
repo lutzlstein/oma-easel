@@ -1,0 +1,228 @@
+--- a/shell/plugins/background/Background.qml
++++ b/shell/plugins/background/Background.qml
+@@ -37,6 +37,87 @@
+   // decode up to cover sourceSize, so a smaller wallpaper would cost the
+   // screen's worth of pixels instead of its own.
+   property var nativeSizes: ({})
++
++  // Per-screen versions. A background can have versions for other screen
++  // shapes: a file of the same name in a folder named for the shape, beside
++  // it in the theme's or the user's backgrounds ("9x16/7-add-boat.webp").
++  // Each screen shows the version closest to its own shape, or the
++  // background itself when that fits better. Base name -> [{ aspect, path }].
++  property var screenVersions: ({})
++  // Images shown on one screen only, by screen name, for previews.
++  property var screenOverrides: ({})
++
++  function baseName(path) {
++    var name = String(path).split("/").pop()
++    var dot = name.lastIndexOf(".")
++    return dot > 0 ? name.slice(0, dot) : name
++  }
++
++  function pathForScreen(path, screenName, aspect) {
++    if (screenOverrides[screenName]) return screenOverrides[screenName]
++    if (!path || isVideo(path) || !(aspect > 0)) return path
++    var versions = screenVersions[baseName(path)]
++    if (!versions || versions.length === 0) return path
++    // Until the background's own size is known, it can't be compared.
++    var native = nativeSizes[path]
++    if (!native || !(native.width > 0)) return path
++    var best = path
++    var bestScore = Math.abs(Math.log(native.width / native.height / aspect))
++    for (var i = 0; i < versions.length; i++) {
++      var score = Math.abs(Math.log(versions[i].aspect / aspect))
++      if (score < bestScore - 0.01) {
++        best = versions[i].path
++        bestScore = score
++      }
++    }
++    return best
++  }
++
++  function rescanVersions() {
++    if (versionScan.running) versionScan.pending = true
++    else versionScan.running = true
++  }
++
++  function loadVersions(text) {
++    var found = {}
++    var lines = String(text || "").split("\n")
++    for (var i = 0; i < lines.length; i++) {
++      var path = lines[i].trim()
++      if (!path) continue
++      var parts = path.split("/")
++      var shape = /^(\d+)x(\d+)$/.exec(parts[parts.length - 2])
++      if (!shape || Number(shape[2]) === 0) continue
++      var base = baseName(path)
++      if (!found[base]) found[base] = []
++      found[base].push({ aspect: Number(shape[1]) / Number(shape[2]), path: path })
++      requestNativeSize(path)
++    }
++    screenVersions = found
++  }
++
++  // A version that fails to load is dropped, so its screen falls back to
++  // the background itself.
++  function dropVersion(path) {
++    var kept = {}
++    for (var base in screenVersions)
++      kept[base] = screenVersions[base].filter(function(version) { return version.path !== path })
++    screenVersions = kept
++    var overrides = Object.assign({}, screenOverrides)
++    for (var name in overrides)
++      if (overrides[name] === path) delete overrides[name]
++    screenOverrides = overrides
++  }
++
++  function setScreenOverride(screenName, path) {
++    var overrides = Object.assign({}, screenOverrides)
++    if (path) {
++      overrides[screenName] = path
++      requestNativeSize(path)
++    } else {
++      delete overrides[screenName]
++    }
++    screenOverrides = overrides
++  }
+   property var sizeQueue: []
+   property bool finishingTransition: false
+   property int backgroundVersion: 0
+@@ -64,9 +145,12 @@
+   }
+ 
+   function refreshBackground() {
++    rescanVersions()
+     if (!readlinkProc.running) readlinkProc.running = true
+   }
+ 
++  onDisplayedBackgroundChanged: rescanVersions()
++
+   // The desktop must never be left without a wallpaper. A path that stops
+   // loading, say one that ran through a theme since replaced, is resolved
+   // again from the background link, which a theme switch always repoints.
+@@ -208,6 +292,9 @@
+   function pruneNativeSizes() {
+     var kept = {}
+     var paths = [displayedBackground, incomingBackground, oldBackground, preparedBackground]
++    for (var base in screenVersions)
++      for (var v = 0; v < screenVersions[base].length; v++) paths.push(screenVersions[base][v].path)
++    for (var name in screenOverrides) paths.push(screenOverrides[name])
+     for (var i = 0; i < paths.length; i++) {
+       if (paths[i] && nativeSizes[paths[i]] !== undefined) kept[paths[i]] = nativeSizes[paths[i]]
+     }
+@@ -250,6 +337,29 @@
+     }
+   }
+ 
++  // Versions live one folder down, which Omarchy's background cycle never
++  // reads, so they don't turn up in it as backgrounds of their own.
++  Process {
++    id: versionScan
++    property bool pending: false
++    command: [
++      "bash", "-c",
++      'theme=$(cat "$1" 2>/dev/null); for dir in "$2/$theme" "$3"; do [[ -n $theme && -d $dir ]] || continue; ' +
++      'find -L "$dir" -mindepth 2 -maxdepth 2 -type f -regex ".*/[0-9]+x[0-9]+/[^/]*" ' +
++      '\\( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" \\) -print; done',
++      "scan", root.stateHome + "/omarchy/current/theme.name", root.home + "/.config/omarchy/backgrounds",
++      root.currentThemeBackgrounds
++    ]
++    stdout: StdioCollector {
++      onStreamFinished: root.loadVersions(text)
++    }
++    onExited: {
++      if (!pending) return
++      pending = false
++      running = true
++    }
++  }
++
+   Process {
+     id: readlinkProc
+     command: ["readlink", "-f", root.currentBackgroundLink]
+@@ -303,6 +413,30 @@
+     function prepare(path: string): void {
+       root.prepareBackground(path)
+     }
++
++    function rescanVersions(): void {
++      root.rescanVersions()
++    }
++
++    // Shows `path` on one screen only, until cleared with an empty path.
++    function setScreen(screenName: string, path: string): void {
++      root.setScreenOverride(screenName, path)
++    }
++
++    function clearScreens(): void {
++      root.screenOverrides = ({})
++    }
++
++    // What each screen shows, as "name<TAB>path" lines. Oma Easel reads this
++    // to tell that per-screen versions are supported.
++    function shown(): string {
++      var lines = []
++      for (var i = 0; i < backgrounds.instances.length; i++) {
++        var panel = backgrounds.instances[i]
++        lines.push((panel.modelData ? panel.modelData.name : "") + "\t" + panel.shownPath)
++      }
++      return lines.join("\n")
++    }
+   }
+ 
+   // A prepared frame that no transition claims, say from a theme switch that
+@@ -387,6 +521,12 @@
+       readonly property bool sized: width > 0 && height > 0
+       readonly property int decodeWidth: sized ? Math.ceil(width * screen.devicePixelRatio) : 0
+       readonly property int decodeHeight: sized ? Math.ceil(height * screen.devicePixelRatio) : 0
++      readonly property real screenAspect: sized ? width / height : 0
++      readonly property string shownPath: base.path
++      // This screen's version of a background, when it has one.
++      function forScreen(path) {
++        return root.pathForScreen(path, panel.modelData ? panel.modelData.name : "", panel.screenAspect)
++      }
+ 
+       function decodeSize(path) {
+         if (!sized || !path) return Qt.size(0, 0)
+@@ -416,12 +556,16 @@
+       BackgroundMedia {
+         id: base
+         anchors.fill: parent
+-        path: root.displayedBackground
++        path: panel.forScreen(root.displayedBackground)
+         version: root.reloadVersion
+         cached: true
+         constrainDecode: true
+-        decodeSize: panel.decodeSize(root.displayedBackground)
+-        onFailedChanged: if (failed) root.recoverBackground(path)
++        decodeSize: panel.decodeSize(path)
++        onFailedChanged: {
++          if (!failed) return
++          if (path !== root.displayedBackground) root.dropVersion(path)
++          else root.recoverBackground(path)
++        }
+         onReadyChanged: {
+           panel.readyFrames = 0
+           if (ready && root.finishingTransition) {
+@@ -437,8 +581,9 @@
+       Image {
+         id: oldFrame
+         anchors.fill: parent
+-        readonly property size decode: panel.decodeSize(root.oldBackground)
+-        source: decode.width > 0 ? root.imageUrl(root.oldBackground) : ""
++        readonly property string framePath: panel.forScreen(root.oldBackground)
++        readonly property size decode: panel.decodeSize(framePath)
++        source: decode.width > 0 ? root.imageUrl(framePath) : ""
+         sourceSize.width: decode.width
+         sourceSize.height: decode.height
+         fillMode: Image.PreserveAspectCrop
+@@ -468,7 +613,7 @@
+           anchors.fill: parent
+           // The same URL and size as a prepared frame keeps its decoded
+           // image, so a transition to it can reveal at once.
+-          readonly property string framePath: root.incomingBackground || root.preparedBackground
++          readonly property string framePath: panel.forScreen(root.incomingBackground || root.preparedBackground)
+           readonly property size decode: panel.decodeSize(framePath)
+           source: decode.width > 0 ? root.imageUrl(framePath) : ""
+           sourceSize.width: decode.width

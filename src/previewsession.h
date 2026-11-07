@@ -19,6 +19,7 @@ public:
         QString setBackground = "omarchy-theme-bg-set";
         QString terminal = "xdg-terminal-exec";
         QString currentBackgroundLink;   // ~/.local/state/omarchy/current/background
+        QString shell = "omarchy-shell";
     };
 
     explicit PreviewSession(const Commands &commands, QObject *parent = nullptr);
@@ -26,8 +27,15 @@ public:
 
     bool active() const { return m_active; }
     // With a monitor, the empty workspace opens there, so a background made
-    // for that screen's shape is seen on it.
-    bool start(const QString &image, const QString &label, QString *error, const QString &monitor = {});
+    // for that screen's shape is seen on it. When the desktop can show a
+    // background per screen, the image goes on that monitor only, beside
+    // `paired` on the others.
+    bool start(const QString &image, const QString &label, QString *error, const QString &monitor = {},
+               const QString &paired = {});
+    // Whether the desktop's background renderer shows versions per screen.
+    bool perScreen() const;
+    // Asks the renderer to look for new versions, after one is kept.
+    void rescanVersions() const;
     void setBackground(const QString &image);
     void finish(bool keep);
 
@@ -47,6 +55,7 @@ private:
     Commands m_commands;
     bool m_active = false;
     QString m_previousBackground;
+    bool m_screenOnly = false;
     QString m_returnWorkspace;
     QString m_returnWindow;
     std::unique_ptr<QTemporaryDir> m_work;
