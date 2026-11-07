@@ -7,8 +7,10 @@ ApplicationWindow {
     id: win
     width: 1280
     height: 860
-    minimumWidth: 860
-    minimumHeight: 620
+    // Tiled windows are often a half or a quarter of a laptop screen, so the
+    // layout tightens and wraps instead of asking for a large minimum.
+    minimumWidth: 360
+    minimumHeight: 360
     visible: true
     title: Qt.application.displayName
 
@@ -16,6 +18,11 @@ ApplicationWindow {
     // so Oma Easel sits on the desktop like the bar, menus, and panels do.
     readonly property var s: theme.style
     readonly property real gap: 8 * s.spacing
+    // Below these widths the window drops secondary text and wraps rows.
+    readonly property bool compact: width < 1000 * s.spacing
+    readonly property bool narrow: width < 640 * s.spacing
+    readonly property bool short: height < 640 * s.spacing
+    readonly property bool tiny: height < 480 * s.spacing
     FontLoader { id: wordmarkFont; source: "qrc:/assets/fonts/Bitcount.ttf" }
     color: s.background
     font.family: s.fontFamily
@@ -147,16 +154,18 @@ ApplicationWindow {
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: 18 * s.spacing
-            spacing: 14 * s.spacing
+            anchors.margins: (win.narrow ? 10 : 18) * s.spacing
+            spacing: (win.compact || win.short ? 8 : 14) * s.spacing
 
             // Theme, its palette, and how images will be made.
             RowLayout {
                 Layout.fillWidth: true
+                Layout.fillHeight: false
                 spacing: win.gap * 1.5
 
                 Row {
                     spacing: win.gap
+                    Layout.alignment: Qt.AlignTop
                     AppLogo {
                         height: 34 * s.spacing; width: height * 512 / 444
                         anchors.verticalCenter: parent.verticalCenter
@@ -165,6 +174,7 @@ ApplicationWindow {
                     // bundled in src/assets/fonts), one word per line; the rest
                     // of the window uses the system font.
                     Column {
+                        visible: !win.narrow
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: -3 * s.spacing
                         Repeater {
@@ -186,7 +196,7 @@ ApplicationWindow {
                     spacing: 6 * s.spacing
                     ODropdown {
                         id: themePicker
-                        Layout.preferredWidth: 260 * s.spacing
+                        Layout.preferredWidth: (win.narrow ? 180 : 260) * s.spacing
                         model: studio.themes
                         textRole: "name"
                         valueRole: "slug"
@@ -213,16 +223,22 @@ ApplicationWindow {
                     }
                 }
 
-                Item { Layout.fillWidth: true }
-
+                // Fills the space between the theme and the buttons, giving
+                // way first when the window is small.
                 OText {
-                    text: studio.manual ? qsTr("manual · copy the prompt to any image platform")
-                                        : qsTr("making images with %1").arg(studio.backendLabel)
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideRight
+                    visible: !win.narrow
+                    text: studio.manual ? (win.compact ? qsTr("manual") : qsTr("manual · copy the prompt to any image platform"))
+                                        : (win.compact ? studio.backendLabel : qsTr("making images with %1").arg(studio.backendLabel))
                     color: studio.manual ? s.accent : Qt.alpha(s.text, 0.55)
                     TapHandler { onTapped: settingsDrawer.open() }
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                 }
-                OText { text: studio.exportSize; muted: true }
+                Item { Layout.fillWidth: true; visible: win.narrow }
+                OText { text: studio.exportSize; muted: true; visible: !win.compact }
                 // What the image agent is doing, for every theme. Click to go
                 // to that theme's batch.
                 Repeater {
@@ -234,7 +250,8 @@ ApplicationWindow {
                             const t = modelData.seconds
                             const clock = Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0")
                             const done = modelData.total - modelData.pending
-                            return qsTr("%1 · generating %2/%3 · %4").arg(modelData.themeName).arg(done).arg(modelData.total).arg(clock)
+                            return win.compact ? qsTr("%1/%2 · %3").arg(done).arg(modelData.total).arg(clock)
+                                               : qsTr("%1 · generating %2/%3 · %4").arg(modelData.themeName).arg(done).arg(modelData.total).arg(clock)
                         }
                         onClicked: modelData.theme === studio.themeSlug ? studio.openBatch(modelData.batch)
                                                                       : studio.loadTheme(modelData.theme)
@@ -242,7 +259,7 @@ ApplicationWindow {
                 }
                 OButton {
                     keyHint: "h"
-                    text: qsTr("history %1").arg(studio.history.length)
+                    text: win.narrow ? String(studio.history.length) : qsTr("history %1").arg(studio.history.length)
                     onClicked: history.visible ? history.close() : history.open()
                 }
             }
@@ -250,9 +267,16 @@ ApplicationWindow {
             // References: the theme's backgrounds, then any candidates chosen
             // as references. Clicking toggles.
             ColumnLayout {
+                // Nested layouts fill height by default; only the grid should.
+                Layout.fillHeight: false
+                visible: references.visible || referencesLabel.visible
                 Layout.fillWidth: true
                 spacing: win.gap
                 OText {
+                    id: referencesLabel
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                    visible: (!win.short && !win.tiny) || studio.references.length > 0
                     text: studio.references.length === 0
                           ? qsTr("Style references · click backgrounds or candidates to use them (optional)")
                           : qsTr("%n reference(s)", "", studio.references.length)
@@ -261,7 +285,9 @@ ApplicationWindow {
                 ListView {
                     id: references
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 96 * s.spacing
+                    // A very short window gives the grid this space instead.
+                    visible: !win.tiny
+                    Layout.preferredHeight: (win.short ? 56 : win.compact ? 72 : 96) * s.spacing
                     orientation: ListView.Horizontal
                     spacing: win.gap
                     clip: true
@@ -300,20 +326,35 @@ ApplicationWindow {
                 }
             }
 
-            // The scene and the batch size.
-            RowLayout {
+            // The scene and the batch size. The controls move under the field
+            // when they no longer fit beside it.
+            Flow {
+                id: sceneRow
                 Layout.fillWidth: true
                 spacing: win.gap
+                // The controls' width on one line, from their own sizes, since
+                // a Flow's implicit width follows the width it is given.
+                readonly property real controlsWidth: {
+                    let total = 0, count = 0
+                    for (const child of sceneControls.children)
+                        if (child.visible && child.implicitWidth > 0) { total += child.implicitWidth; ++count }
+                    return total + Math.max(0, count - 1) * spacing
+                }
+                readonly property bool stacked: width - controlsWidth - spacing < 320 * s.spacing
                 OField {
                     id: sceneField
-                    Layout.fillWidth: true
+                    width: sceneRow.stacked ? sceneRow.width : sceneRow.width - sceneRow.controlsWidth - sceneRow.spacing
                     placeholderText: qsTr("Describe a scene: a quiet harbor at dawn, fishing boats, autumn trees")
                     text: studio.scene
                     onTextEdited: studio.scene = text
                     onAccepted: { grid.forceActiveFocus(); win.requestGenerate() }
                     Keys.onEscapePressed: grid.forceActiveFocus()
                 }
-                OText { text: studio.enabledDisplays > 1 ? qsTr("per screen") : qsTr("candidates"); muted: true; visible: !studio.manual }
+                Flow {
+                id: sceneControls
+                spacing: win.gap
+                width: sceneRow.stacked ? sceneRow.width : sceneRow.controlsWidth
+                OText { text: studio.enabledDisplays > 1 ? qsTr("per screen") : qsTr("candidates"); muted: true; visible: !studio.manual; height: 28 * s.spacing; verticalAlignment: Text.AlignVCenter }
                 OStepper {
                     visible: !studio.manual
                     from: 1; to: 6
@@ -342,6 +383,7 @@ ApplicationWindow {
                     keyHint: "esc"
                     text: qsTr("Stop")
                     onClicked: win.requestStop()
+                }
                 }
             }
 
@@ -389,7 +431,7 @@ ApplicationWindow {
             // The prompt the batch on screen was made from.
             OText {
                 Layout.fillWidth: true
-                visible: studio.candidates.length > 0 && studio.batchScene !== ""
+                visible: studio.candidates.length > 0 && studio.batchScene !== "" && !win.tiny
                 text: "“" + studio.batchScene + "”" + (studio.batchChange ? qsTr("  ·  varied: %1").arg(studio.batchChange) : "")
                 elide: Text.ElideRight
                 muted: true
@@ -416,24 +458,40 @@ ApplicationWindow {
                     }
                     return { columns: best.columns, width: Math.floor(best.width), height: Math.floor(best.width / aspect) }
                 }
-                // How much of the width each section gets. Two sections search
-                // for the split where both sets of tiles are as large as they
-                // can be together; more share it evenly.
-                readonly property var shares: {
+                // How the sections share the space: side by side or stacked,
+                // whichever lets every set of tiles be largest together (a
+                // tall, narrow window stacks them). Two sections search for
+                // the best split; more share it evenly.
+                function arrange(vertical) {
                     const list = studio.sections
-                    const h = height - headerHeight
-                    if (list.length <= 1) return [1]
-                    if (list.length > 2) return list.map(() => 1 / list.length)
-                    let best = 0.5, bestScore = -Infinity
-                    for (let f = 0.15; f <= 0.851; f += 0.01) {
-                        const a = fit(list[0].indices.length, width * f, h, list[0].aspect)
-                        const b = fit(list[1].indices.length, width * (1 - f), h, list[1].aspect)
-                        if (a.width <= 0 || b.width <= 0) continue
-                        const score = Math.log(a.width * a.height) + Math.log(b.width * b.height)
-                        if (score > bestScore) { bestScore = score; best = f }
+                    const n = list.length
+                    const boxW = f => vertical ? width : width * f
+                    const boxH = f => (vertical ? height * f : height) - headerHeight
+                    const score = fs => {
+                        let total = 0
+                        for (let i = 0; i < n; ++i) {
+                            const t = fit(list[i].indices.length, boxW(fs[i]), boxH(fs[i]), list[i].aspect)
+                            if (t.width <= 0 || t.height <= 0) return -Infinity
+                            total += Math.log(t.width * t.height)
+                        }
+                        return total
                     }
-                    return [best, 1 - best]
+                    if (n <= 1) return { shares: [1], score: n ? score([1]) : 0 }
+                    if (n > 2) { const even = list.map(() => 1 / n); return { shares: even, score: score(even) } }
+                    let best = [0.5, 0.5], bestScore = -Infinity
+                    for (let f = 0.15; f <= 0.851; f += 0.01) {
+                        const sc = score([f, 1 - f])
+                        if (sc > bestScore) { bestScore = sc; best = [f, 1 - f] }
+                    }
+                    return { shares: best, score: bestScore }
                 }
+                readonly property var arrangement: {
+                    const across = arrange(false), stacked = arrange(true)
+                    return stacked.score > across.score ? { vertical: true, shares: stacked.shares }
+                                                        : { vertical: false, shares: across.shares }
+                }
+                readonly property bool vertical: arrangement.vertical
+                readonly property var shares: arrangement.shares
                 function sectionOf(index) {
                     const list = studio.sections
                     for (let i = 0; i < list.length; ++i)
@@ -444,20 +502,22 @@ ApplicationWindow {
                     const i = sectionOf(index)
                     const section = studio.sections[i]
                     if (!section) return 1
-                    return fit(section.indices.length, width * shares[i], height - headerHeight, section.aspect).columns
+                    return fit(section.indices.length, vertical ? width : width * shares[i],
+                               (vertical ? height * shares[i] : height) - headerHeight, section.aspect).columns
                 }
                 function positionViewAtIndex() {}
 
-                Row {
+                Grid {
                     anchors.fill: parent
+                    columns: grid.vertical ? 1 : Math.max(1, studio.sections.length)
                     Repeater {
                         model: studio.sections
                         Item {
                             id: section
                             required property var modelData
                             required property int index
-                            width: grid.width * (grid.shares[index] || 0)
-                            height: grid.height
+                            width: grid.vertical ? grid.width : grid.width * (grid.shares[index] || 0)
+                            height: grid.vertical ? grid.height * (grid.shares[index] || 0) : grid.height
                             readonly property var layout: grid.fit(modelData.indices.length, width, height - grid.headerHeight, modelData.aspect)
 
                             OText {
@@ -498,11 +558,21 @@ ApplicationWindow {
                 }
             }
 
-            // Attribution, settings, status, and the keys that matter most.
-            RowLayout {
+            // The latest message on its own line, then attribution, settings,
+            // and the keys that matter most, wrapping as the window narrows.
+            OText {
+                Layout.fillWidth: true
+                visible: text !== ""
+                text: studio.message
+                elide: Text.ElideRight
+            }
+            Flow {
+                id: footer
                 Layout.fillWidth: true
                 spacing: 14 * s.spacing
+                readonly property real rowHeight: 28 * s.spacing
                 OText {
+                    height: footer.rowHeight; verticalAlignment: Text.AlignVCenter
                     text: qsTr("by %1").arg(appAuthor)
                     muted: !attributionHover.hovered
                     font.underline: attributionHover.hovered
@@ -510,25 +580,23 @@ ApplicationWindow {
                     TapHandler { onTapped: Qt.openUrlExternally(appRepository) }
                 }
                 OText {
+                    height: footer.rowHeight; verticalAlignment: Text.AlignVCenter
                     text: qsTr("support on Ko-fi")
                     muted: !supportHover.hovered
                     font.underline: supportHover.hovered
                     HoverHandler { id: supportHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: Qt.openUrlExternally(appSupport) }
                 }
-                OButton { keyHint: "s"; text: qsTr("models & export"); onClicked: settingsDrawer.open() }
-                OText { Layout.fillWidth: true; text: studio.message; elide: Text.ElideRight }
-                Row {
-                    spacing: 14 * s.spacing
-                    KeyHint { key: "space"; label: qsTr("generate") }
-                    KeyHint { key: "enter"; label: qsTr("keep") }
-                    KeyHint { key: "v"; label: qsTr("vary") }
-                    KeyHint { key: "o"; label: qsTr("companion"); visible: studio.displays.length > 1 }
-                    KeyHint { key: "r"; label: qsTr("reference") }
-                    KeyHint { key: "p"; label: qsTr("preview") }
-                    KeyHint { key: "h"; label: qsTr("history") }
-                    KeyHint { key: "?"; label: qsTr("keys") }
-                }
+                OButton { keyHint: "s"; text: win.narrow ? qsTr("settings") : qsTr("models & export"); onClicked: settingsDrawer.open() }
+                // Small windows keep the main keys; ? lists the rest.
+                KeyHint { height: footer.rowHeight; key: "space"; label: qsTr("generate"); visible: !win.narrow }
+                KeyHint { height: footer.rowHeight; key: "enter"; label: qsTr("keep"); visible: !win.narrow }
+                KeyHint { height: footer.rowHeight; key: "v"; label: qsTr("vary"); visible: !win.compact }
+                KeyHint { height: footer.rowHeight; key: "o"; label: qsTr("companion"); visible: !win.compact && studio.displays.length > 1 }
+                KeyHint { height: footer.rowHeight; key: "r"; label: qsTr("reference"); visible: !win.compact }
+                KeyHint { height: footer.rowHeight; key: "p"; label: qsTr("preview"); visible: !win.compact }
+                KeyHint { height: footer.rowHeight; key: "h"; label: qsTr("history"); visible: !win.compact }
+                KeyHint { height: footer.rowHeight; key: "?"; label: qsTr("keys") }
             }
         }
     }
@@ -539,6 +607,8 @@ ApplicationWindow {
                     property var candidate
                     property int index
                     readonly property var modelData: candidate
+                    // Small tiles show only the key caps on their buttons.
+                    readonly property bool tight: width < 380 * s.spacing
                     readonly property bool isSelected: index === win.selected
                     readonly property bool hasImage: modelData.state === "ready" || modelData.state === "kept"
 
@@ -599,13 +669,15 @@ ApplicationWindow {
                             width: parent.width - 20
                             layoutDirection: Qt.RightToLeft
                             spacing: 6
+                            // Too small a tile has no room for buttons; the keys still work.
                             visible: cell.hasImage && (cellHover.hovered || cell.isSelected)
-                            OButton { keyHint: "enter"; text: modelData.variant ? qsTr("keep %1").arg(modelData.ratio) : qsTr("keep"); visible: modelData.state === "ready"; onClicked: studio.keep(cell.index); solid: true }
-                            OButton { keyHint: "o"; text: qsTr("companion"); visible: studio.displays.length > 1 && !studio.manual; onClicked: studio.companion(cell.index); solid: true }
-                            OButton { keyHint: "v"; text: qsTr("vary"); onClicked: win.askVary(cell.index); solid: true }
-                            OButton { keyHint: "r"; text: modelData.reference ? qsTr("unreference") : qsTr("reference"); onClicked: studio.toggleReference(modelData.path); solid: true }
-                            OButton { keyHint: "p"; text: qsTr("preview"); onClicked: studio.preview(cell.index); solid: true }
-                            OButton { keyHint: "d"; text: qsTr("discard"); onClicked: studio.discard(cell.index); solid: true }
+                                     && cell.width > 170 * s.spacing && cell.height > 90 * s.spacing
+                            OButton { keyHint: "enter"; text: cell.tight ? "" : (modelData.variant ? qsTr("keep %1").arg(modelData.ratio) : qsTr("keep")); visible: modelData.state === "ready"; onClicked: studio.keep(cell.index); solid: true }
+                            OButton { keyHint: "o"; text: cell.tight ? "" : qsTr("companion"); visible: studio.displays.length > 1 && !studio.manual; onClicked: studio.companion(cell.index); solid: true }
+                            OButton { keyHint: "v"; text: cell.tight ? "" : qsTr("vary"); onClicked: win.askVary(cell.index); solid: true }
+                            OButton { keyHint: "r"; text: cell.tight ? "" : modelData.reference ? qsTr("unreference") : qsTr("reference"); onClicked: studio.toggleReference(modelData.path); solid: true }
+                            OButton { keyHint: "p"; text: cell.tight ? "" : qsTr("preview"); onClicked: studio.preview(cell.index); solid: true }
+                            OButton { keyHint: "d"; text: cell.tight ? "" : qsTr("discard"); onClicked: studio.discard(cell.index); solid: true }
                         }
                     }
                 }
@@ -625,7 +697,7 @@ ApplicationWindow {
     Drawer {
         id: settingsDrawer
         edge: Qt.LeftEdge
-        width: Math.min(win.width * 0.45, 560 * s.spacing)
+        width: win.compact ? Math.min(win.width - 24 * s.spacing, 560 * s.spacing) : Math.min(win.width * 0.45, 560 * s.spacing)
         height: win.height
         onOpened: studio.refreshBackends()
         Overlay.modal: Rectangle { color: Qt.alpha(s.background, 0.4) }
@@ -757,7 +829,10 @@ ApplicationWindow {
     component Card: Popup {
         anchors.centerIn: parent
         modal: true
-        padding: 18 * s.spacing
+        padding: (win.narrow ? 12 : 18) * s.spacing
+        // Cards never grow past the window; long ones scroll inside.
+        height: Math.min(implicitHeight, win.height - 24 * s.spacing)
+        width: Math.min(implicitWidth, win.width - 24 * s.spacing)
         Overlay.modal: Rectangle { color: Qt.alpha(s.background, 0.5) }
         background: Rectangle { color: s.popupBackground; radius: theme.radius; border.width: 1; border.color: s.border }
     }
@@ -767,7 +842,7 @@ ApplicationWindow {
     Drawer {
         id: history
         edge: Qt.RightEdge
-        width: Math.min(win.width * 0.4, 520 * s.spacing)
+        width: win.compact ? Math.min(win.width - 24 * s.spacing, 520 * s.spacing) : Math.min(win.width * 0.4, 520 * s.spacing)
         height: win.height
         Overlay.modal: Rectangle { color: Qt.alpha(s.background, 0.4) }
         background: Rectangle {
@@ -783,7 +858,7 @@ ApplicationWindow {
             RowLayout {
                 Layout.fillWidth: true
                 OText { Layout.fillWidth: true; text: qsTr("History · %1").arg(studio.themeName); size: 1.167 }
-                OText { text: qsTr("click to reference · double-click to open"); muted: true }
+                OText { text: qsTr("click to reference · double-click to open"); muted: true; visible: !win.compact }
             }
             OText {
                 visible: studio.history.length === 0
@@ -849,7 +924,7 @@ ApplicationWindow {
     Card {
         id: varyCard
         property bool submitted: false
-        width: Math.min(win.width * 0.6, 720 * s.spacing)
+        width: Math.min(win.width - 32 * s.spacing, Math.max(win.width * 0.6, 420 * s.spacing), 720 * s.spacing)
         onOpened: { submitted = false; varyField.text = ""; varyField.forceActiveFocus() }
         onClosed: {
             studio.vary(win.selected, submitted ? varyField.text : "")
@@ -875,7 +950,7 @@ ApplicationWindow {
     Card {
         id: pairCard
         property int index: -1
-        width: Math.min(win.width * 0.7, 900 * s.spacing)
+        width: Math.min(win.width - 32 * s.spacing, Math.max(win.width * 0.7, 420 * s.spacing), 900 * s.spacing)
         onClosed: grid.forceActiveFocus()
         ColumnLayout {
             anchors.fill: parent
@@ -906,7 +981,14 @@ ApplicationWindow {
 
     Card {
         id: help
+        width: Math.min(win.width - 24 * s.spacing, 640 * s.spacing)
+        ScrollView {
+        id: helpScroll
+        anchors.fill: parent
+        clip: true
+        contentWidth: availableWidth
         ColumnLayout {
+            width: helpScroll.availableWidth
             spacing: 6 * s.spacing
             Repeater {
                 model: [
@@ -931,7 +1013,7 @@ ApplicationWindow {
                     required property var modelData
                     spacing: 16 * s.spacing
                     Item {
-                        Layout.preferredWidth: 90 * s.spacing
+                        Layout.preferredWidth: 92 * s.spacing
                         implicitHeight: keyRow.implicitHeight
                         // Several keys ("← → ↑ ↓") get a cap each.
                         Row {
@@ -940,9 +1022,10 @@ ApplicationWindow {
                             Repeater { model: modelData[0].split(" "); KeyCap { required property string modelData; key: modelData } }
                         }
                     }
-                    OText { text: modelData[1] }
+                    OText { text: modelData[1]; Layout.fillWidth: true; wrapMode: Text.Wrap }
                 }
             }
+        }
         }
     }
 
