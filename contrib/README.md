@@ -22,7 +22,7 @@ Oma Easel uses `shown` to tell whether the renderer supports versions, and falls
 ```sh
 omarchy plugin clone omarchy.background
 cd ~/.config/omarchy/plugins/$USER.background
-patch -p3 < ~/Projects/oma-easel/contrib/per-screen-backgrounds.patch   # adjust the path to this file
+patch -p4 < /path/to/oma-easel/contrib/per-screen-backgrounds.patch
 omarchy restart shell
 ```
 
