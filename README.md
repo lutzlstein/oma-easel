@@ -4,6 +4,10 @@ Generates new background images for an installed [Omarchy](https://omarchy.org) 
 
 New backgrounds go into `~/.config/omarchy/backgrounds/<theme>/`, where Omarchy picks them up for that theme's background cycle. Themes themselves are never modified.
 
+![Oma Easel with a batch for a 21:9 ultrawide and a rotated 9:16 monitor, in the Maine Autumn Dark theme](docs/screenshot.webp)
+
+Make candidates for each of your screens at once, keep the ones you like, and choose what every monitor shows. A 9:16 monitor gets its own composition of a scene, not a crop of the ultrawide one.
+
 > Early days.
 
 ## Example
@@ -13,6 +17,52 @@ Omarchy's built-in [Kanagawa theme](https://github.com/omacom/omarchy/tree/quatt
 ![A woodblock-print mountain lake at dusk with a wooden boat and pine trees, made for the Kanagawa theme](docs/example-kanagawa.webp)
 
 Kept, it lands in `~/.config/omarchy/backgrounds/kanagawa/` and joins Kanagawa's background cycle; the theme itself is untouched.
+
+## Gallery
+
+Backgrounds made with Oma Easel for my Maine themes ([Autumn Sunrise](https://github.com/lutzlstein/omarchy-maine-autumn-theme), [Autumn Dark](https://github.com/lutzlstein/omarchy-maine-autumn-dark-theme), [Autumn Sunset](https://github.com/lutzlstein/omarchy-maine-autumn-sunset-theme), [Summer Dark](https://github.com/lutzlstein/omarchy-maine-summer-dark-theme)). Each one started from a background already in its theme, shown on the left, with the prompt in the middle; all were made through Codex's image tool. Click an image for the full-size file in its theme repo.
+
+<table>
+<tr><th>Started from</th><th>Prompt</th><th>Made with Oma Easel</th></tr>
+<tr>
+<td width="40%"><a href="https://github.com/lutzlstein/omarchy-maine-autumn-theme/blob/main/backgrounds/1-misty-autumn-river-sunrise.webp"><img src="docs/gallery/sunrise-original.webp" alt="1-misty-autumn-river-sunrise.webp"></a></td>
+<td width="20%" align="center">“restyle this image with broad painterly strokes”</td>
+<td width="40%"><a href="https://github.com/lutzlstein/omarchy-maine-autumn-theme/blob/main/backgrounds/2-restyle-this-image-broad-painterly.webp"><img src="docs/gallery/sunrise-painterly.webp" alt="2-restyle-this-image-broad-painterly.webp"></a></td>
+</tr>
+<tr>
+<td width="40%"><a href="https://github.com/lutzlstein/omarchy-maine-autumn-theme/blob/main/backgrounds/2-restyle-this-image-broad-painterly.webp"><img src="docs/gallery/sunrise-painterly.webp" alt="2-restyle-this-image-broad-painterly.webp"></a></td>
+<td width="20%" align="center">“create an abstract piece that follows the composition and colors of the reference”</td>
+<td width="40%"><a href="https://github.com/lutzlstein/omarchy-maine-autumn-theme/blob/main/backgrounds/3-create-abstract-piece-that-follows.webp"><img src="docs/gallery/sunrise-abstract.webp" alt="3-create-abstract-piece-that-follows.webp"></a></td>
+</tr>
+<tr>
+<td width="40%"><a href="https://github.com/lutzlstein/omarchy-maine-summer-dark-theme/blob/main/backgrounds/1-moonlit-lake-loon.webp"><img src="docs/gallery/summer-original.webp" alt="1-moonlit-lake-loon.webp"></a></td>
+<td width="20%" align="center">“bauhaus”</td>
+<td width="40%"><a href="https://github.com/lutzlstein/omarchy-maine-summer-dark-theme/blob/main/backgrounds/4-bauhaus.webp"><img src="docs/gallery/summer-bauhaus.webp" alt="4-bauhaus.webp"></a></td>
+</tr>
+<tr>
+<td width="40%"><a href="https://github.com/lutzlstein/omarchy-maine-autumn-sunset-theme/blob/main/backgrounds/3-maine-coastal-islands.webp"><img src="docs/gallery/sunset-islands.webp" alt="3-maine-coastal-islands.webp"></a></td>
+<td width="20%" align="center">“interior forest trail through a small stream”</td>
+<td width="40%"><a href="https://github.com/lutzlstein/omarchy-maine-autumn-sunset-theme/blob/main/backgrounds/4-interior-forest-trail-through-small.webp"><img src="docs/gallery/sunset-trail.webp" alt="4-interior-forest-trail-through-small.webp"></a></td>
+</tr>
+<tr>
+<td width="40%"><a href="https://github.com/lutzlstein/omarchy-maine-autumn-dark-theme/blob/main/backgrounds/6-same-scene-from-perspetive-forest.webp"><img src="docs/gallery/dark-forest.webp" alt="6-same-scene-from-perspetive-forest.webp"></a></td>
+<td width="20%" align="center">“8 bit”</td>
+<td width="40%"><a href="https://github.com/lutzlstein/omarchy-maine-autumn-dark-theme/blob/main/backgrounds/7-8-bit.webp"><img src="docs/gallery/dark-8bit.webp" alt="7-8-bit.webp"></a></td>
+</tr>
+</table>
+
+### One scene, two screens
+
+For a 21:9 ultrawide beside a rotated 9:16 monitor, the companion feature painted Autumn Dark's “bauhaus” background again for the portrait screen: the same forms and light, recomposed rather than cropped. With the [plugin's renderer](https://github.com/lutzlstein/oma-easel-plugin), each monitor shows its own.
+
+<table>
+<tr>
+<td width="76%"><a href="https://github.com/lutzlstein/omarchy-maine-autumn-dark-theme/blob/main/backgrounds/5-bauhaus.webp"><img src="docs/gallery/dark-bauhaus.webp" alt="5-bauhaus.webp, 21:9"></a><br>21:9 · <code>5-bauhaus.webp</code></td>
+<td width="24%"><a href="https://github.com/lutzlstein/omarchy-maine-autumn-dark-theme/blob/main/backgrounds/9x16/5-bauhaus.webp"><img src="docs/gallery/dark-bauhaus-9x16.webp" alt="9x16/5-bauhaus.webp, 9:16"></a><br>9:16 · <code>9x16/5-bauhaus.webp</code></td>
+</tr>
+</table>
+
+The images are MIT licensed with their themes.
 
 ## How it works
 
@@ -116,7 +166,7 @@ sudo pacman -U https://github.com/lutzlstein/oma-easel/releases/latest/download/
 
 That installs the latest release and pulls its dependencies from the Arch repos. An AUR package is planned.
 
-Optional: the [bar widget](https://github.com/lutzlstein/oma-easel-plugin) opens Oma Easel and shows what's generating.
+Recommended with more than one monitor: the [Oma Easel plugin](https://github.com/lutzlstein/oma-easel-plugin) adds a bar widget that opens Oma Easel and shows what's generating, and a background renderer that shows each monitor its own image.
 
 ```sh
 omarchy plugin add https://github.com/lutzlstein/oma-easel-plugin --enable

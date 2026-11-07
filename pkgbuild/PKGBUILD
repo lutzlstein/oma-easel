@@ -1,7 +1,7 @@
 # Local build from this checkout: bin/install runs makepkg here. The AUR
 # package builds the same way from a tagged release tarball (see aur/).
 pkgname=oma-easel
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc='Generate new backgrounds for your Omarchy themes'
 arch=('x86_64' 'aarch64')

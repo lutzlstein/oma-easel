@@ -263,12 +263,12 @@ ApplicationWindow {
                 OButton {
                     visible: studio.monitors.length > 1
                     keyHint: "m"
-                    text: win.narrow ? "" : qsTr("displays")
+                    text: win.compact ? "" : qsTr("displays")
                     onClicked: displaysCard.open()
                 }
                 OButton {
                     keyHint: "h"
-                    text: win.narrow ? String(studio.history.length) : qsTr("history %1").arg(studio.history.length)
+                    text: win.compact ? String(studio.history.length) : qsTr("history %1").arg(studio.history.length)
                     onClicked: history.visible ? history.close() : history.open()
                 }
             }
@@ -516,8 +516,11 @@ ApplicationWindow {
                 }
                 function positionViewAtIndex() {}
 
+                // Sections take only the width their tiles use, and the group is
+                // centered, so no gap opens between them.
                 Grid {
-                    anchors.fill: parent
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    columnSpacing: win.gap
                     columns: grid.vertical ? 1 : Math.max(1, studio.sections.length)
                     Repeater {
                         model: studio.sections
@@ -525,9 +528,10 @@ ApplicationWindow {
                             id: section
                             required property var modelData
                             required property int index
-                            width: grid.vertical ? grid.width : grid.width * (grid.shares[index] || 0)
+                            readonly property real boxWidth: grid.vertical ? grid.width : (grid.width - win.gap * (studio.sections.length - 1)) * (grid.shares[index] || 0)
+                            width: grid.vertical ? grid.width : layout.columns * layout.width
                             height: grid.vertical ? grid.height * (grid.shares[index] || 0) : grid.height
-                            readonly property var layout: grid.fit(modelData.indices.length, width, height - grid.headerHeight, modelData.aspect)
+                            readonly property var layout: grid.fit(modelData.indices.length, boxWidth, height - grid.headerHeight, modelData.aspect)
 
                             OText {
                                 visible: grid.headerHeight > 0

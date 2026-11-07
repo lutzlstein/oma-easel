@@ -2,7 +2,7 @@
 # Update pkgver and sha256sums for each release (updpkgsums), then
 # makepkg --printsrcinfo > .SRCINFO before pushing to the AUR.
 pkgname=oma-easel
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc='Generate new backgrounds for your Omarchy themes'
 arch=('x86_64' 'aarch64')
