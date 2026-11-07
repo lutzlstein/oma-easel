@@ -103,7 +103,7 @@ Any of the theme's backgrounds can have a companion too: hover it in the referen
 
 Omarchy's background cycle reads only the top folder, so versions never appear in it as backgrounds of their own.
 
-Omarchy's own background renderer shows one image on every screen. [`contrib/`](contrib/README.md) has a patch that makes each screen show the version closest to its shape. With it, previewing a version shows it on its own monitor beside the background it pairs with, and keeping it sets that background, so each screen shows its own shape of the pair. Without it, a version is previewed on every screen, and keeping it puts your current background back.
+Omarchy's own background renderer shows one image on every screen. The [companion plugin](https://github.com/lutzlstein/oma-easel-plugin) includes a renderer that takes its place and shows each screen the version closest to its shape; [`contrib/`](contrib/README.md) has the same change as a patch to Omarchy's renderer. With it, previewing a version shows it on its own monitor beside the background it pairs with, and keeping it sets that background, so each screen shows its own shape of the pair. Without it, a version is previewed on every screen, and keeping it puts your current background back.
 
 ## Install
 
