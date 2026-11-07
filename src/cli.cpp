@@ -96,7 +96,24 @@ std::optional<Brief> readBrief(const QCommandLineParser &parser, const Paths &pa
     const auto info = loadTheme(ThemeLibrary(paths), parser.positionalArguments().value(0), error);
     if (!info)
         return std::nullopt;
-    Brief brief{*info, scene, {}, Screens::target(Screens::query()), {}};
+    const QList<Target> shapes = Screens::shapes(Screens::query());
+    Brief brief{*info, scene, {}, shapes.first(), {}};
+    // --shape picks one of the user's other screen shapes ("9x16").
+    if (parser.isSet("shape")) {
+        bool found = false;
+        for (const Target &shape : shapes)
+            if (shape.key() == parser.value("shape")) {
+                brief.target = shape;
+                found = true;
+            }
+        if (!found) {
+            QStringList keys;
+            for (const Target &shape : shapes)
+                keys << shape.key();
+            *error = QString("No screen has the shape \"%1\". Your shapes: %2.").arg(parser.value("shape"), keys.join(", "));
+            return std::nullopt;
+        }
+    }
     for (const QString &reference : parser.values("ref")) {
         const QString resolved = resolveReference(reference, *info);
         if (resolved.isEmpty()) {
@@ -114,6 +131,8 @@ void addBriefOptions(QCommandLineParser &parser) {
     parser.addOption({"prompt", "The scene to paint.", "text"});
     parser.addOption({"ref", "Style reference: a file, a background name, or its number in `oma-easel theme`. "
                              "Repeatable.", "reference"});
+    parser.addOption({"shape", "Compose for one of your screen shapes, as `oma-easel screens` lists them (\"9x16\"); "
+                               "the main shape when left out.", "shape"});
 }
 
 int themes(const QStringList &arguments, const Paths &paths) {
@@ -165,23 +184,23 @@ int screens(const QStringList &arguments) {
     if (!parse(parser, arguments, &error))
         return failure(error);
     const QList<Monitor> monitors = Screens::query();
-    const Target target = Screens::target(monitors);
+    const QList<Target> shapes = Screens::shapes(monitors);
     QJsonArray list;
     for (const Monitor &monitor : monitors)
         list.append(QJsonObject{{"name", monitor.name}, {"width", monitor.width}, {"height", monitor.height}});
     if (parser.isSet("json")) {
-        QJsonObject object = target.toJson();
-        object.insert("monitors", list);
-        printJson(object);
+        QJsonArray shapeList;
+        for (const Target &shape : shapes)
+            shapeList.append(shape.toJson());
+        printJson(QJsonObject{{"monitors", list}, {"shapes", shapeList}});
         return 0;
     }
     for (const Monitor &monitor : monitors)
         out() << monitor.name << "  " << monitor.width << "x" << monitor.height << "\n";
-    out() << "Backgrounds export at " << target.width << "x" << target.height << " ("
-          << PromptBuilder::aspectLabel(target) << ")";
-    if (!target.cropped.isEmpty())
-        out() << "; cropped on " << target.cropped.join(", ");
-    out() << "\n" << Qt::flush;
+    for (int i = 0; i < shapes.size(); ++i)
+        out() << (i == 0 ? "Main shape " : "Also      ") << shapes.at(i).key() << "  exports at " << shapes.at(i).width
+              << "x" << shapes.at(i).height << " for " << shapes.at(i).monitors.join(", ") << "\n";
+    out() << Qt::flush;
     return 0;
 }
 
@@ -375,6 +394,8 @@ int keep(const QStringList &arguments, const Paths &paths) {
     QCommandLineParser parser;
     parser.addPositionalArgument("candidate", "A candidate PNG printed by `oma-easel generate`.");
     parser.addOption({"name", "Words for the file name; the scene when left out.", "name"});
+    parser.addOption({"version-of", "Save it as this background's version for the candidate's screen shape, "
+                                    "in a folder named for the shape.", "background"});
     QString error;
     if (!parse(parser, arguments, &error))
         return failure(error);
@@ -389,8 +410,14 @@ int keep(const QStringList &arguments, const Paths &paths) {
     if (!info)
         return failure(error);
 
-    const Target target = Screens::target(Screens::query());
-    const auto kept = Library(paths).keep(candidate, *info, target, parser.value("name"), &error);
+    const Target target = Library::targetFor(candidate, Screens::shapes(Screens::query()).first());
+    QString versionOf;
+    if (parser.isSet("version-of")) {
+        versionOf = resolveReference(parser.value("version-of"), *info);
+        if (versionOf.isEmpty())
+            return failure(QString("No %1 background matches \"%2\".").arg(info->name, parser.value("version-of")));
+    }
+    const auto kept = Library(paths).keep(candidate, *info, target, parser.value("name"), &error, ExportOptions(), versionOf);
     if (!kept)
         return failure(error);
     if (parser.isSet("json"))
@@ -438,7 +465,7 @@ QString Cli::usage() {
            "  open [theme]           Open the window (the default)\n"
            "  themes                 List installed Omarchy themes\n"
            "  theme [theme]          Show a theme's colors and backgrounds\n"
-           "  screens                Show monitors and the export size\n"
+           "  screens                Show monitors and the shapes backgrounds are made for\n"
            "  backends               Show which ways of making images are available\n"
            "  generate [theme] --prompt \"...\" [--ref ...] [-n 3]\n"
            "                         Generate candidate backgrounds\n"
@@ -446,7 +473,7 @@ QString Cli::usage() {
            "                         Print a prompt to paste into another image platform\n"
            "  import <file>... [--theme ...] [--prompt \"...\"]\n"
            "                         Add images made elsewhere as candidates\n"
-           "  keep <candidate> [--name \"...\"]\n"
+           "  keep <candidate> [--name \"...\"] [--version-of <background>]\n"
            "                         Keep a candidate as a background for its theme\n"
            "  remove <background> [--theme ...]\n"
            "                         Move a background Oma Easel added to the trash\n\n"

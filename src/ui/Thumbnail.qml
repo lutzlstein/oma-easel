@@ -9,8 +9,10 @@ Rectangle {
     property bool dimmed: false
     property string caption
     property bool removable: false
+    property bool companionable: false
     signal clicked()
     signal removeRequested()
+    signal companionRequested()
     readonly property var s: theme.style
 
     radius: theme.radius
@@ -45,6 +47,16 @@ Rectangle {
         topPadding: 0; bottomPadding: 0; leftPadding: 6; rightPadding: 6
         implicitHeight: 20
         onClicked: thumb.removeRequested()
+    }
+    // Recompose this background for the user's other screen shapes.
+    OButton {
+        visible: thumb.companionable && hover.hovered
+        anchors.top: parent.top; anchors.left: parent.left; anchors.margins: 4
+        text: qsTr("companion")
+        solid: true
+        topPadding: 0; bottomPadding: 0; leftPadding: 6; rightPadding: 6
+        implicitHeight: 20
+        onClicked: thumb.companionRequested()
     }
     HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }
     TapHandler { onTapped: thumb.clicked() }

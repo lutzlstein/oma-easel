@@ -98,6 +98,184 @@ private slots:
         QCOMPARE(none.height, 2160);
     }
 
+    void shapesGroupMonitorsByAspect()
+    {
+        const QList<Target> mixed = Screens::shapes({{"DP-2", 1440, 2560}, {"DP-3", 3440, 1440}});
+        QCOMPARE(mixed.size(), 2);
+        QCOMPARE(mixed.at(0).key(), QString("21x9"));
+        QCOMPARE(mixed.at(0).monitors, QStringList({"DP-3"}));
+        QCOMPARE(mixed.at(0).cropped, QStringList({"DP-2"}));
+        QCOMPARE(mixed.at(1).key(), QString("9x16"));
+        QCOMPARE(mixed.at(1).width, 1440);
+        QCOMPARE(mixed.at(1).height, 2560);
+        QVERIFY(mixed.at(1).portrait());
+
+        // Close shapes share one: 16:9 and 16:10 are both made at 16:10.
+        const QList<Target> close = Screens::shapes({{"A", 1920, 1080}, {"B", 2560, 1600}});
+        QCOMPARE(close.size(), 1);
+        QCOMPARE(close.first().monitors.size(), 2);
+
+        QCOMPARE(Screens::shapes({}).size(), 1);
+        QCOMPARE(Target::fromJson(mixed.at(1).toJson()).key(), QString("9x16"));
+    }
+
+    void portraitPromptsAndCompanions()
+    {
+        const Target portrait{1440, 2560, {}};
+        const QString prompt = PromptBuilder::build("harbor", {}, 0, portrait);
+        QVERIFY(prompt.contains("Tall portrait composition at 9:16 (1440x2560)"));
+        const QString companion = PromptBuilder::build("harbor", {}, 1, portrait, "ignored", true);
+        QVERIFY(companion.contains("Paint the same scene again for a tall portrait screen"));
+        QVERIFY(!companion.contains("ignored"));
+    }
+
+    void generatesForEachShapeAndKeepsVersions()
+    {
+        if (QStandardPaths::findExecutable("magick").isEmpty())
+            QSKIP("ImageMagick is not installed.");
+        QTemporaryDir dir;
+        qputenv("XDG_DATA_HOME", dir.filePath("data-home").toUtf8());
+        const Paths paths = Paths::underRoot(dir.path());
+        write(paths.stockThemes + "/nord/colors.toml", "accent = \"#81a1c1\"\n");
+        write(paths.currentThemeName, "nord\n");
+        QImage image(60, 60, QImage::Format_RGB32);
+        image.fill(Qt::green);
+        QVERIFY(image.save(dir.filePath("fixture.png")));
+        const QString codex = dir.filePath("fake-codex");
+        write(codex, "#!/bin/sh\n"
+                     "while [ $# -gt 0 ]; do [ \"$1\" = --output-last-message ] && out=\"$2\"; shift; done\n"
+                     "dest='" + paths.codexImages.toUtf8() + "'/run-$$/image.png\n"
+                     "mkdir -p \"$(dirname \"$dest\")\" && cp '" + dir.filePath("fixture.png").toUtf8() + "' \"$dest\"\n"
+                     "echo \"$dest\" > \"$out\"\n");
+        QVERIFY(QFile::setPermissions(codex, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+
+        Target wide{120, 50, {}, {"DP-3"}};
+        Target tall{50, 90, {}, {"DP-2"}};
+        Studio::Options options;
+        options.detectBackends = false;
+        options.backend = "codex";
+        options.codex = codex;
+        options.shapes = {wide, tall};
+        options.preview.shell = "true";
+        Studio studio(paths, options);
+        QCOMPARE(studio.displays().size(), 2);
+        QCOMPARE(studio.enabledDisplays(), 2);
+
+        // One grid per shape, each with its own prompt.
+        studio.setScene("green hills");
+        studio.setCount(2);
+        studio.generate();
+        QCOMPARE(studio.candidates().size(), 4);
+        QTRY_VERIFY_WITH_TIMEOUT(!studio.busy(), 10000);
+        const QVariantList sections = studio.sections();
+        QCOMPARE(sections.size(), 2);
+        QCOMPARE(sections.at(0).toMap().value("key").toString(), QString("21x9"));
+        QCOMPARE(sections.at(1).toMap().value("indices").toList(), QVariantList({2, 3}));
+        QVERIFY(studio.candidates().at(2).toMap().value("variant").toBool());
+        const QString batch = QFileInfo(studio.candidates().at(0).toMap().value("path").toString()).absolutePath();
+        const QJsonObject info = Library::readBatch(batch);
+        QVERIFY(info.value("shapes").toArray().at(1).toObject().value("prompt").toString().contains("Tall portrait"));
+
+        // Keeping the portrait candidate pairs it with the one main image kept.
+        studio.keep(0);
+        const QString main = studio.candidates().at(0).toMap().value("keptAs").toString();
+        QVERIFY(main.endsWith("/nord/1-green-hills.webp"));
+        studio.keep(2);
+        const QString version = studio.candidates().at(2).toMap().value("keptAs").toString();
+        QCOMPARE(version, paths.userBackgrounds + "/nord/9x16/1-green-hills.webp");
+        QCOMPARE(QImage(version).size(), QSize(50, 90));
+        QCOMPARE(studio.backgrounds().first().toMap().value("variants").toStringList(), QStringList({"9x16"}));
+        // Versions stay out of the theme's own list, and so out of Omarchy's cycle.
+        QCOMPARE(studio.backgrounds().size(), 1);
+
+        // With two main images kept, the window has to ask.
+        studio.keep(1);
+        QSignalSpy asked(&studio, &Studio::pairNeeded);
+        studio.keep(3);
+        QCOMPARE(asked.size(), 1);
+        studio.keepVariant(3, main);
+        QCOMPARE(studio.candidates().at(3).toMap().value("state").toString(), QString("kept"));
+
+        // A companion recomposes one candidate for the other shapes, and its
+        // results pair with that candidate's background.
+        studio.companion(0);
+        QCOMPARE(studio.candidates().size(), 2);
+        QVERIFY(studio.candidates().at(0).toMap().value("variant").toBool());
+        QTRY_VERIFY_WITH_TIMEOUT(!studio.busy(), 10000);
+        const QString companionBatch = QFileInfo(studio.candidates().at(0).toMap().value("path").toString()).absolutePath();
+        QVERIFY(Library::readBatch(companionBatch).value("prompt").toString().contains("Paint the same scene again"));
+        studio.keep(0);
+        QCOMPARE(studio.candidates().at(0).toMap().value("keptAs").toString(), version);
+
+        // Only one shape on: generating makes just that grid. The last shape
+        // can't be turned off.
+        studio.toggleDisplay("9x16");
+        QCOMPARE(studio.enabledDisplays(), 1);
+        studio.toggleDisplay("21x9");
+        QCOMPARE(studio.enabledDisplays(), 1);
+
+        // Removing a background takes its versions with it.
+        studio.removeBackground(main);
+        QVERIFY(!QFileInfo::exists(version));
+        qunsetenv("XDG_DATA_HOME");
+    }
+
+    void companionsForStoredBackgrounds()
+    {
+        if (QStandardPaths::findExecutable("magick").isEmpty())
+            QSKIP("ImageMagick is not installed.");
+        QTemporaryDir dir;
+        const Paths paths = Paths::underRoot(dir.path());
+        write(paths.stockThemes + "/nord/colors.toml", "accent = \"#81a1c1\"\n");
+        write(paths.currentThemeName, "nord\n");
+        // One background already fits the wide screen; one fits neither.
+        QDir().mkpath(paths.stockThemes + "/nord/backgrounds");
+        QImage wideImage(240, 100, QImage::Format_RGB32), plainImage(160, 90, QImage::Format_RGB32);
+        wideImage.fill(Qt::blue);
+        plainImage.fill(Qt::gray);
+        const QString wideBackground = paths.stockThemes + "/nord/backgrounds/1-fjord.png";
+        const QString plainBackground = paths.stockThemes + "/nord/backgrounds/2-plain.png";
+        QVERIFY(wideImage.save(wideBackground));
+        QVERIFY(plainImage.save(plainBackground));
+        QImage fixture(60, 60, QImage::Format_RGB32);
+        fixture.fill(Qt::green);
+        QVERIFY(fixture.save(dir.filePath("fixture.png")));
+        const QString codex = dir.filePath("fake-codex");
+        write(codex, "#!/bin/sh\n"
+                     "while [ $# -gt 0 ]; do [ \"$1\" = --output-last-message ] && out=\"$2\"; shift; done\n"
+                     "dest='" + paths.codexImages.toUtf8() + "'/run-$$/image.png\n"
+                     "mkdir -p \"$(dirname \"$dest\")\" && cp '" + dir.filePath("fixture.png").toUtf8() + "' \"$dest\"\n"
+                     "echo \"$dest\" > \"$out\"\n");
+        QVERIFY(QFile::setPermissions(codex, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+
+        Studio::Options options;
+        options.detectBackends = false;
+        options.backend = "codex";
+        options.codex = codex;
+        options.shapes = {Target{120, 50, {}, {"DP-3"}}, Target{50, 90, {}, {"DP-2"}}};
+        options.preview.shell = "true";
+        Studio studio(paths, options);
+
+        QCOMPARE(studio.companionPlan(wideBackground), QString("DP-2 9:16"));
+        QCOMPARE(studio.companionPlan(plainBackground), QString("DP-3 21:9 · DP-2 9:16"));
+
+        // Only the screen the image doesn't fit gets candidates, and keeping
+        // one saves it as that background's version.
+        studio.setCount(2);
+        studio.companionForBackground(wideBackground);
+        QCOMPARE(studio.candidates().size(), 2);
+        QVERIFY(studio.candidates().at(0).toMap().value("variant").toBool());
+        QTRY_VERIFY_WITH_TIMEOUT(!studio.busy(), 10000);
+        studio.keep(1);
+        QCOMPARE(studio.candidates().at(1).toMap().value("keptAs").toString(),
+                 paths.userBackgrounds + "/nord/9x16/1-fjord.webp");
+        QCOMPARE(studio.backgrounds().first().toMap().value("variants").toStringList(), QStringList({"9x16"}));
+
+        studio.companionForBackground(plainBackground);
+        QCOMPARE(studio.candidates().size(), 4);
+        QTRY_VERIFY_WITH_TIMEOUT(!studio.busy(), 10000);
+    }
+
     void promptCarriesSceneColorsAndShape()
     {
         const Target target = Screens::target({{"DP-3", 3440, 1440}});
@@ -306,6 +484,73 @@ private slots:
             QCOMPARE(sets.at(1), dir.filePath("previous.png"));
         }
         QVERIFY(lines(hyprLog).join('\n').contains("hl.dsp.focus({ workspace = \"1\" })"));
+    }
+
+    // A version is previewed on its own monitor beside the background it
+    // pairs with; keeping it sets that background, so each screen shows its
+    // own shape of the pair.
+    void previewShowsVersionOnItsScreen()
+    {
+        if (QStandardPaths::findExecutable("magick").isEmpty())
+            QSKIP("ImageMagick is not installed.");
+        QTemporaryDir dir;
+        const Paths paths = Paths::underRoot(dir.path());
+        write(paths.stockThemes + "/nord/colors.toml", "accent = \"#81a1c1\"\n");
+        write(paths.currentThemeName, "nord\n");
+        QDir().mkpath(paths.stockThemes + "/nord/backgrounds");
+        QImage wide(240, 100, QImage::Format_RGB32);
+        wide.fill(Qt::blue);
+        const QString background = paths.stockThemes + "/nord/backgrounds/1-fjord.png";
+        QVERIFY(wide.save(background));
+        write(dir.filePath("previous.png"), "x");
+        QVERIFY(QFile::link(dir.filePath("previous.png"), dir.filePath("background")));
+
+        const QString setLog = dir.filePath("set.log"), shellLog = dir.filePath("shell.log");
+        auto script = [&](const QString &name, const QByteArray &body) {
+            write(dir.filePath(name), "#!/bin/sh\n" + body);
+            QVERIFY(QFile::setPermissions(dir.filePath(name), QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+        };
+        script("bg-set", "echo \"$1\" >> '" + setLog.toUtf8() + "'\n");
+        script("hyprctl", "echo '[]'\n");
+        script("terminal", "echo k | PATH=/nonexistent /bin/bash \"$5\"\n");
+        // A renderer that shows versions per screen answers `background shown`.
+        script("shell", "echo \"$*\" >> '" + shellLog.toUtf8() + "'\n"
+                        "[ \"$2\" = shown ] && printf 'DP-2\\tx\\nDP-3\\ty\\n'\nexit 0\n");
+
+        Studio::Options options;
+        options.detectBackends = false;
+        options.shapes = {Target{120, 50, {}, {"DP-3"}}, Target{50, 90, {}, {"DP-2"}}};
+        options.preview = {dir.filePath("hyprctl"), dir.filePath("bg-set"), dir.filePath("terminal"),
+                           dir.filePath("background"), dir.filePath("shell")};
+        Studio studio(paths, options);
+        QImage tall(50, 90, QImage::Format_RGB32);
+        tall.fill(Qt::red);
+        QVERIFY(tall.save(dir.filePath("tall.png")));
+        studio.setScene("fjord");
+        studio.importFiles({dir.filePath("tall.png")});
+        QVERIFY(studio.candidates().at(0).toMap().value("variant").toBool());
+
+        // Nothing pairs automatically here, so preview leaves the desktop's
+        // background alone and puts the candidate on DP-2 only; keeping asks.
+        QSignalSpy asked(&studio, &Studio::pairNeeded);
+        studio.preview(0);
+        QTRY_COMPARE(studio.previewing(), -1);
+        QCOMPARE(asked.size(), 1);
+        auto lines = [](const QString &path) {
+            QFile file(path);
+            return file.open(QIODevice::ReadOnly) ? QString::fromUtf8(file.readAll()).trimmed().split('\n') : QStringList();
+        };
+        QTRY_VERIFY(lines(shellLog).join('\n').contains("clearScreens"));
+        QVERIFY(lines(shellLog).join('\n').contains("-q background setScreen DP-2 " + studio.candidates().at(0).toMap().value("path").toString()));
+        QTRY_COMPARE(lines(setLog), QStringList({dir.filePath("previous.png")}));
+
+        // Once paired, previewing again and keeping sets the pair.
+        studio.keepVariant(0, background);
+        QTRY_VERIFY(lines(shellLog).join('\n').contains("rescanVersions"));
+        studio.preview(0);
+        QTRY_COMPARE(studio.previewing(), -1);
+        QTRY_VERIFY(lines(setLog).contains(background));
+        QCOMPARE(lines(setLog).last(), background);
     }
 
     void historyRemembersBatchesAndPrompts()

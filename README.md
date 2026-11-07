@@ -42,6 +42,7 @@ Candidates wait in `~/.cache/oma-easel/<theme>/<batch>/` until kept.
 | Enter | Keep the selected candidate |
 | D | Discard the selected candidate |
 | V | Vary: say what to change, or Esc for fresh takes in the same style |
+| O | Companion: the same scene composed again for your other screens |
 | R | Use the selected candidate as a reference |
 | P | Preview on an empty workspace, with a prompt to keep it or go back |
 | H | History: every earlier batch for the theme, with its prompt |
@@ -62,14 +63,14 @@ Backgrounds Oma Easel added are marked in the reference strip; hover one and cli
 ```
 oma-easel themes                         List installed themes (* marks the current one)
 oma-easel theme [theme]                  Show a theme's colors and backgrounds
-oma-easel screens                        Show monitors and the export size
+oma-easel screens                        Show monitors and the shapes backgrounds are made for
 oma-easel backends                       Show which ways of making images are available
-oma-easel generate [theme] --prompt "…" [--ref …] [-n 3] [--backend codex|openai|gemini]
+oma-easel generate [theme] --prompt "…" [--ref …] [-n 3] [--shape 9x16] [--backend codex|openai|gemini]
 oma-easel prompt [theme] --prompt "…" [--ref …]
                                      Print a prompt to paste into another image platform
 oma-easel import <file>… [--theme …] [--prompt "…"] [--source "…"]
                                      Add images made elsewhere as candidates
-oma-easel keep <candidate> [--name "…"]
+oma-easel keep <candidate> [--name "…"] [--version-of <background>]
 oma-easel remove <background> [--theme …]
                                      Move a background Oma Easel added to the trash
 ```
@@ -77,13 +78,32 @@ oma-easel remove <background> [--theme …]
 Every command takes `--json` and exits 0 on success or 1 with the reason on stderr. `--ref` accepts a file path, a background file name, or its number in `oma-easel theme`.
 
 ```sh
-oma-oma-easel generate kanagawa --prompt "a quiet mountain lake at dusk with a lone boat" --ref 1 -n 3
+oma-easel generate kanagawa --prompt "a quiet mountain lake at dusk with a lone boat" --ref 1 -n 3
 oma-easel keep ~/.cache/oma-easel/kanagawa/<batch>/candidate-2.png
 ```
 
 ## Screens
 
-The export size comes from `hyprctl monitors`: the widest landscape monitor's shape, large enough to fill every landscape monitor. Portrait monitors show a center crop.
+Oma Easel reads `hyprctl monitors` and groups your monitors by shape: monitors within 15% of each other's aspect share one, so 16:9 and 16:10 screens are made for together while a 21:9 ultrawide and a rotated 9:16 monitor each get their own. Each shape is sized to fill its monitors without upscaling.
+
+With more than one shape, the generate bar shows a button per screen. Every shape that's on gets its own grid of candidates, composed for that shape rather than cropped from another. Turn a shape off to generate only for the others.
+
+The largest monitor's shape is the main one: its candidates are kept as backgrounds. A candidate for another shape is kept as a *version* of a background, under the same name in a folder named for the shape:
+
+```
+~/.config/omarchy/backgrounds/<theme>/7-add-boat.webp
+~/.config/omarchy/backgrounds/<theme>/9x16/7-add-boat.webp
+```
+
+Oma Easel pairs a version with the background its companion batch was made from, or with the one main image kept from the same batch. Otherwise it asks which background it belongs to. Keeping a newer version replaces the old one, and removing a background takes its versions with it.
+
+**Companion** (`O`) takes one candidate and paints the same scene again for each of your other shapes, using it as the reference. That gives a matched pair, where two separate grids from one prompt would drift apart.
+
+Any of the theme's backgrounds can have a companion too: hover it in the reference strip and click **companion**. An image that already fits one of your screens is only recomposed for the others, so a 21:9 background gets just a 9:16 version on a 21:9 + 9:16 setup. The new versions pair with that background automatically, stock backgrounds included. Versions are always saved in your user backgrounds, never in the theme's own folder.
+
+Omarchy's background cycle reads only the top folder, so versions never appear in it as backgrounds of their own.
+
+Omarchy's own background renderer shows one image on every screen. [`contrib/`](contrib/README.md) has a patch that makes each screen show the version closest to its shape. With it, previewing a version shows it on its own monitor beside the background it pairs with, and keeping it sets that background, so each screen shows its own shape of the pair. Without it, a version is previewed on every screen, and keeping it puts your current background back.
 
 ## Install
 

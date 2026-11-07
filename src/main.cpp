@@ -75,6 +75,11 @@ int main(int argc, char *argv[]) {
     // OMA_EASEL_SCREENSHOT=<file> (and QT_QPA_PLATFORM=offscreen), save the
     // window once it has drawn and quit.
     const QString screenshot = qEnvironmentVariable("OMA_EASEL_SCREENSHOT");
+    // OMA_EASEL_SCREENSHOT_SIZE=<w>x<h> checks a tiled window's size.
+    const QStringList shotSize = qEnvironmentVariable("OMA_EASEL_SCREENSHOT_SIZE").split('x');
+    if (!screenshot.isEmpty() && shotSize.size() == 2)
+        if (auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first()))
+            window->resize(shotSize.at(0).toInt(), shotSize.at(1).toInt());
     if (!screenshot.isEmpty())
         QTimer::singleShot(2500, &app, [&] {
             if (auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first()))

@@ -10,7 +10,10 @@
 namespace PromptBuilder {
 // With a `change`, the single reference is a candidate being varied: keep it
 // and change only what was asked, instead of using it as a style guide.
+//
+// With `recompose`, the single reference is a finished wallpaper for another
+// screen: keep the scene and compose it again for this target's shape.
 QString build(const QString &scene, const QMap<QString, QString> &colors, int referenceCount,
-              const Target &target, const QString &change = {});
+              const Target &target, const QString &change = {}, bool recompose = false);
 QString aspectLabel(const Target &target);
 }

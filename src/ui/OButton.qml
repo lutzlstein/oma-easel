@@ -33,6 +33,7 @@ Button {
             anchors.verticalCenter: parent.verticalCenter
         }
         Text {
+            visible: control.text !== ""
             text: control.text
             font: control.font
             color: control.enabled ? control.ink : Qt.alpha(control.ink, 0.4)
