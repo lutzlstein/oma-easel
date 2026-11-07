@@ -19,6 +19,8 @@ Oma Easel uses `shown` to tell whether the renderer supports versions, and falls
 
 ## Using it before it's in Omarchy
 
+The easiest way is the [Oma Easel plugin](https://github.com/lutzlstein/oma-easel-plugin), which ships this renderer: `omarchy plugin add https://github.com/lutzlstein/oma-easel-plugin --enable`. To apply the patch yourself instead:
+
 ```sh
 omarchy plugin clone omarchy.background
 cd ~/.config/omarchy/plugins/$USER.background
