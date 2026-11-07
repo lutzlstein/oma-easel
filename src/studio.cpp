@@ -648,6 +648,8 @@ void Studio::jobEnded(Generator *generator, bool ok, const QString &error) {
 QString Studio::pairFor(int index) const {
     const QHash<QString, QString> kept = keptCandidates();
     const QString source = Library::readBatch(m_batch).value("companionOf").toString();
+    if (m_theme.backgrounds.contains(source))
+        return source;
     const QString fromSource = kept.value(source);
     if (!fromSource.isEmpty() && QFileInfo(fromSource).absolutePath() == QFileInfo(m_theme.userBackgroundDirectory).absoluteFilePath())
         return fromSource;
@@ -756,31 +758,84 @@ void Studio::vary(int index, const QString &change) {
 }
 
 void Studio::companion(int index) {
-    if (index < 0 || index >= m_candidates.size() || busy())
+    if (index < 0 || index >= m_candidates.size())
         return;
     const Candidate source = m_candidates.at(index);
     if (source.state != "ready" && source.state != "kept")
+        return;
+    QList<Target> others;
+    for (const Target &shape : m_shapes)
+        if (shape.key() != source.target.key())
+            others << shape;
+    startCompanion(source.path, others, m_batchScene);
+}
+
+// The shapes a background's companion is made for: every screen shape
+// except the one the image already fits, judged by its own pixels.
+QList<Target> Studio::companionShapes(const QString &path) const {
+    const QSize size = QImageReader(path).size();
+    QString fits;
+    if (size.isValid() && size.height() > 0) {
+        const double aspect = double(size.width()) / size.height();
+        double nearest = 0.15;
+        for (const Target &shape : m_shapes) {
+            const double difference = std::abs(shape.aspect() - aspect) / shape.aspect();
+            if (difference < nearest) {
+                nearest = difference;
+                fits = shape.key();
+            }
+        }
+    }
+    QList<Target> shapes;
+    for (const Target &shape : m_shapes)
+        if (shape.key() != fits)
+            shapes << shape;
+    return shapes;
+}
+
+QString Studio::companionPlan(const QString &path) const {
+    QStringList parts;
+    for (const Target &shape : companionShapes(path))
+        parts << (shape.monitors.isEmpty() ? shape.ratio() : shape.monitors.join(", ") + " " + shape.ratio());
+    return parts.join(" · ");
+}
+
+void Studio::companionForBackground(const QString &path) {
+    if (!m_theme.backgrounds.contains(path))
+        return;
+    // A background Oma Easel made remembers its scene; any other is
+    // described by the image itself.
+    QString scene;
+    const QString master = m_store.addedBackgrounds(m_theme.slug).value(path);
+    if (!master.isEmpty()) {
+        QFile sidecar(QFileInfo(master).absolutePath() + "/" + QFileInfo(master).completeBaseName() + ".json");
+        if (sidecar.open(QIODevice::ReadOnly))
+            scene = QJsonDocument::fromJson(sidecar.readAll()).object().value("scene").toString();
+    }
+    if (scene.isEmpty())
+        scene = tr("the scene in the attached image");
+    startCompanion(path, companionShapes(path), scene);
+}
+
+void Studio::startCompanion(const QString &source, const QList<Target> &shapes, const QString &scene) {
+    if (busy())
         return;
     if (manual()) {
         setMessage(tr("Companions need an image model. Choose one under models & export."));
         return;
     }
-    QList<Target> others;
-    for (const Target &shape : m_shapes)
-        if (shape.key() != source.target.key())
-            others << shape;
-    if (others.isEmpty()) {
-        setMessage(tr("All your screens share this shape, so there's nothing to compose a companion for."));
+    if (shapes.isEmpty() || m_shapes.size() < 2) {
+        setMessage(tr("This image already fits all your screens, so there's nothing to compose a companion for."));
         return;
     }
     if (m_scene.trimmed().isEmpty()) {
-        m_scene = m_batchScene;
+        m_scene = scene;
         emit sceneChanged();
     }
-    m_references = {source.path};
+    m_references = {source};
     m_change.clear();
     emit referencesChanged();
-    startBatch(others, true, source.path);
+    startBatch(shapes, true, source);
 }
 
 void Studio::preview(int index) {

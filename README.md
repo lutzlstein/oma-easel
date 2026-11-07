@@ -99,6 +99,8 @@ Oma Easel pairs a version with the background its companion batch was made from,
 
 **Companion** (`O`) takes one candidate and paints the same scene again for each of your other shapes, using it as the reference. That gives a matched pair, where two separate grids from one prompt would drift apart.
 
+Any of the theme's backgrounds can have a companion too: hover it in the reference strip and click **companion**. An image that already fits one of your screens is only recomposed for the others, so a 21:9 background gets just a 9:16 version on a 21:9 + 9:16 setup. The new versions pair with that background automatically, stock backgrounds included. Versions are always saved in your user backgrounds, never in the theme's own folder.
+
 Omarchy's background cycle reads only the top folder, so versions never appear in it as backgrounds of their own. Omarchy currently shows one background on every screen, so it doesn't use versions yet; that needs per-screen support in its background renderer. Previewing a version opens it on a monitor of its shape, then puts your current background back.
 
 ## Install

@@ -62,6 +62,14 @@ ApplicationWindow {
         if (studio.busy)
             stopCard.open()
     }
+    // A companion spends image credits like a run, so it asks first.
+    function askCompanion(path) {
+        const plan = studio.companionPlan(path)
+        if (plan === "") { studio.companionForBackground(path); return }
+        companionCard.path = path
+        companionCard.plan = plan
+        companionCard.open()
+    }
     function askVary(index) {
         if (!canUse(index))
             return
@@ -267,8 +275,10 @@ ApplicationWindow {
                         dimmed: studio.references.length > 0 && !modelData.selected
                         caption: [modelData.added ? qsTr("added") : "", ...modelData.variants].filter(x => x).join(" · ")
                         removable: modelData.added
+                        companionable: studio.displays.length > 1 && !studio.manual && !studio.busy
                         onClicked: studio.toggleReference(modelData.path)
                         onRemoveRequested: { removeCard.path = modelData.path; removeCard.open() }
+                        onCompanionRequested: win.askCompanion(modelData.path)
                     }
                     footer: Row {
                         height: references.height
@@ -984,6 +994,16 @@ ApplicationWindow {
                 + "\n" + qsTr("with %1").arg(studio.backend)
         confirmLabel: qsTr("Generate")
         onConfirmed: studio.generate()
+    }
+
+    ConfirmCard {
+        id: companionCard
+        property string path
+        property string plan
+        heading: qsTr("Make %n companion(s) for %1?", "", studio.count * plan.split(" · ").length).arg(plan)
+        detail: path.split("/").pop() + "\n" + qsTr("the same scene, composed for each of those screens") + "\n" + qsTr("with %1").arg(studio.backend)
+        confirmLabel: qsTr("Generate")
+        onConfirmed: studio.companionForBackground(path)
     }
 
     ConfirmCard {

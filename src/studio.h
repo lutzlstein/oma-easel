@@ -128,6 +128,13 @@ public:
     Q_INVOKABLE void vary(int index, const QString &change = {});
     // The same scene, composed again for each of the other screen shapes.
     Q_INVOKABLE void companion(int index);
+    // The same for any of the theme's backgrounds. An image that already
+    // fits one of the screens is only recomposed for the others.
+    Q_INVOKABLE void companionForBackground(const QString &path);
+    // What a companion of `path` would be made for, as "DP-2 9:16", shapes
+    // separated by " · "; empty
+    // when there is nothing to make.
+    Q_INVOKABLE QString companionPlan(const QString &path) const;
     // Saves a candidate made for another shape as `background`'s version.
     Q_INVOKABLE void keepVariant(int index, const QString &background);
     Q_INVOKABLE void toggleDisplay(const QString &key);
@@ -188,6 +195,8 @@ private:
     QJsonObject batchInfo(const QString &backend, const QList<Target> &shapes = {}, int count = 0,
                           bool recompose = false) const;
     void startBatch(const QList<Target> &shapes, bool recompose, const QString &companionOf);
+    void startCompanion(const QString &source, const QList<Target> &shapes, const QString &scene);
+    QList<Target> companionShapes(const QString &path) const;
     QList<Target> enabledShapes() const;
     Target shapeFor(const QString &key) const;
     bool isVariant(const Candidate &candidate) const;

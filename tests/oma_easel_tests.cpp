@@ -219,6 +219,61 @@ private slots:
         qunsetenv("XDG_DATA_HOME");
     }
 
+    void companionsForStoredBackgrounds()
+    {
+        if (QStandardPaths::findExecutable("magick").isEmpty())
+            QSKIP("ImageMagick is not installed.");
+        QTemporaryDir dir;
+        const Paths paths = Paths::underRoot(dir.path());
+        write(paths.stockThemes + "/nord/colors.toml", "accent = \"#81a1c1\"\n");
+        write(paths.currentThemeName, "nord\n");
+        // One background already fits the wide screen; one fits neither.
+        QDir().mkpath(paths.stockThemes + "/nord/backgrounds");
+        QImage wideImage(240, 100, QImage::Format_RGB32), plainImage(160, 90, QImage::Format_RGB32);
+        wideImage.fill(Qt::blue);
+        plainImage.fill(Qt::gray);
+        const QString wideBackground = paths.stockThemes + "/nord/backgrounds/1-fjord.png";
+        const QString plainBackground = paths.stockThemes + "/nord/backgrounds/2-plain.png";
+        QVERIFY(wideImage.save(wideBackground));
+        QVERIFY(plainImage.save(plainBackground));
+        QImage fixture(60, 60, QImage::Format_RGB32);
+        fixture.fill(Qt::green);
+        QVERIFY(fixture.save(dir.filePath("fixture.png")));
+        const QString codex = dir.filePath("fake-codex");
+        write(codex, "#!/bin/sh\n"
+                     "while [ $# -gt 0 ]; do [ \"$1\" = --output-last-message ] && out=\"$2\"; shift; done\n"
+                     "dest='" + paths.codexImages.toUtf8() + "'/run-$$/image.png\n"
+                     "mkdir -p \"$(dirname \"$dest\")\" && cp '" + dir.filePath("fixture.png").toUtf8() + "' \"$dest\"\n"
+                     "echo \"$dest\" > \"$out\"\n");
+        QVERIFY(QFile::setPermissions(codex, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+
+        Studio::Options options;
+        options.detectBackends = false;
+        options.backend = "codex";
+        options.codex = codex;
+        options.shapes = {Target{120, 50, {}, {"DP-3"}}, Target{50, 90, {}, {"DP-2"}}};
+        Studio studio(paths, options);
+
+        QCOMPARE(studio.companionPlan(wideBackground), QString("DP-2 9:16"));
+        QCOMPARE(studio.companionPlan(plainBackground), QString("DP-3 21:9 · DP-2 9:16"));
+
+        // Only the screen the image doesn't fit gets candidates, and keeping
+        // one saves it as that background's version.
+        studio.setCount(2);
+        studio.companionForBackground(wideBackground);
+        QCOMPARE(studio.candidates().size(), 2);
+        QVERIFY(studio.candidates().at(0).toMap().value("variant").toBool());
+        QTRY_VERIFY_WITH_TIMEOUT(!studio.busy(), 10000);
+        studio.keep(1);
+        QCOMPARE(studio.candidates().at(1).toMap().value("keptAs").toString(),
+                 paths.userBackgrounds + "/nord/9x16/1-fjord.webp");
+        QCOMPARE(studio.backgrounds().first().toMap().value("variants").toStringList(), QStringList({"9x16"}));
+
+        studio.companionForBackground(plainBackground);
+        QCOMPARE(studio.candidates().size(), 4);
+        QTRY_VERIFY_WITH_TIMEOUT(!studio.busy(), 10000);
+    }
+
     void promptCarriesSceneColorsAndShape()
     {
         const Target target = Screens::target({{"DP-3", 3440, 1440}});
