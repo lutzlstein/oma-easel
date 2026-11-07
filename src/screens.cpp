@@ -11,7 +11,8 @@ QList<Monitor> Screens::parse(const QByteArray &hyprctlJson) {
     for (const QJsonValue &value : QJsonDocument::fromJson(hyprctlJson).array()) {
         const QJsonObject object = value.toObject();
         Monitor monitor{object.value("name").toString(), object.value("width").toInt(),
-                        object.value("height").toInt()};
+                        object.value("height").toInt(), object.value("x").toInt(), object.value("y").toInt(),
+                        object.value("scale").toDouble(1)};
         // Hyprland reports the mode's size; transforms 1, 3, 5 and 7 rotate it
         // a quarter turn, so the wallpaper the monitor shows is the other way up.
         if (object.value("transform").toInt() % 2 == 1)

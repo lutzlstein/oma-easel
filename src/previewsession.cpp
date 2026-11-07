@@ -84,12 +84,22 @@ QString PreviewSession::promptScript(const QString &label, const QString &result
         .arg(quotedLabel, quotedResult);
 }
 
-bool PreviewSession::perScreen() const {
+QHash<QString, QString> PreviewSession::shown() const {
     QProcess process;
     process.start(m_commands.shell, {"background", "shown"});
+    QHash<QString, QString> screens;
     if (!process.waitForFinished(3000))
-        return false;
-    return process.readAllStandardOutput().contains('\t');
+        return screens;
+    for (const QString &line : QString::fromUtf8(process.readAllStandardOutput()).split('\n')) {
+        const int tab = line.indexOf('\t');
+        if (tab > 0)
+            screens.insert(line.left(tab), line.mid(tab + 1).trimmed());
+    }
+    return screens;
+}
+
+bool PreviewSession::perScreen() const {
+    return !shown().isEmpty();
 }
 
 void PreviewSession::rescanVersions() const {

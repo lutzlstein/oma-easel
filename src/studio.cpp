@@ -14,6 +14,8 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QMap>
+#include <QRegularExpression>
+#include <cmath>
 #include <algorithm>
 
 #include "codexgenerator.h"
@@ -23,12 +25,15 @@
 Studio::Studio(const Paths &paths, const Options &options, QObject *parent)
     : QObject(parent), m_paths(paths), m_options(options), m_settings(paths.settings), m_library(paths), m_store(paths),
       m_preview(options.preview) {
+    m_monitors = m_options.monitors;
+    if (m_monitors.isEmpty() && m_options.shapes.isEmpty() && !m_options.target)
+        m_monitors = Screens::query();
     if (!m_options.shapes.isEmpty())
         m_shapes = m_options.shapes;
     else if (m_options.target)
         m_shapes = {*m_options.target};
     else
-        m_shapes = Screens::shapes(Screens::query());
+        m_shapes = Screens::shapes(m_monitors);
     m_target = m_shapes.first();
 
     if (!m_options.backend.isEmpty())
@@ -294,6 +299,166 @@ QVariantList Studio::extraReferences() const {
         if (!m_theme.backgrounds.contains(path))
             list.append(QVariantMap{{"path", path}, {"name", QFileInfo(path).fileName()}});
     return list;
+}
+
+double Studio::aspectOf(const QString &path) const {
+    if (!m_aspects.contains(path)) {
+        const QSize size = QImageReader(path).size();
+        m_aspects.insert(path, size.isValid() && size.height() > 0 ? double(size.width()) / size.height() : 0);
+    }
+    return m_aspects.value(path);
+}
+
+Target Studio::shapeOfMonitor(const QString &name) const {
+    for (const Target &shape : m_shapes)
+        if (shape.monitors.contains(name))
+            return shape;
+    return m_target;
+}
+
+QString Studio::desktopThemeName() const {
+    return ThemeLibrary::displayName(m_library.currentSlug());
+}
+
+void Studio::refreshMonitors() {
+    m_shown = m_preview.shown();
+    emit monitorsChanged();
+}
+
+QVariantList Studio::monitors() const {
+    // Without a per-screen renderer every monitor shows the background.
+    const QString linkPath = m_options.preview.currentBackgroundLink.isEmpty()
+                                 ? QDir::homePath() + "/.local/state/omarchy/current/background"
+                                 : m_options.preview.currentBackgroundLink;
+    const QString background = QFileInfo(linkPath).symLinkTarget();
+    QVariantList list;
+    for (const Monitor &monitor : m_monitors) {
+        const Target shape = shapeOfMonitor(monitor.name);
+        // Layout size is logical: physical pixels over the scale.
+        const double scale = monitor.scale > 0 ? monitor.scale : 1;
+        list.append(QVariantMap{{"name", monitor.name},
+                                {"x", monitor.x},
+                                {"y", monitor.y},
+                                {"width", monitor.width / scale},
+                                {"height", monitor.height / scale},
+                                {"shape", shape.key()},
+                                {"ratio", shape.ratio()},
+                                {"aspect", double(monitor.width) / monitor.height},
+                                {"primary", shape.key() == m_target.key()},
+                                {"shown", m_shown.value(monitor.name, background)}});
+    }
+    return list;
+}
+
+// Backgrounds, their versions for every shape, and every candidate in the
+// history: anything in the theme's library can go on any monitor.
+QVariantList Studio::imagesFor(const QString &monitor) const {
+    double screen = 0;
+    for (const Monitor &m : m_monitors)
+        if (m.name == monitor)
+            screen = double(m.width) / m.height;
+    struct Image { QString path, kind; };
+    QList<Image> images;
+    QStringList seen;
+    auto add = [&](const QString &path, const QString &kind) {
+        if (!seen.contains(path) && QFileInfo(path).isFile()) {
+            seen << path;
+            images.append({path, kind});
+        }
+    };
+    QStringList folders{m_theme.userBackgroundDirectory};
+    for (const QString &background : m_theme.backgrounds) {
+        add(background, "background");
+        if (!folders.contains(QFileInfo(background).absolutePath()))
+            folders << QFileInfo(background).absolutePath();
+    }
+    static const QRegularExpression shapeFolder("^\\d+x\\d+$");
+    for (const QString &folder : folders)
+        for (const QString &sub : QDir(folder).entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name))
+            if (shapeFolder.match(sub).hasMatch())
+                for (const QString &file : QDir(folder + "/" + sub).entryList(QDir::Files, QDir::Name))
+                    if (ThemeLibrary::isImage(file))
+                        add(folder + "/" + sub + "/" + file, "version");
+    for (const QVariant &batch : m_history)
+        for (const QVariant &candidate : batch.toMap().value("candidates").toList())
+            add(candidate.toMap().value("path").toString(), "candidate");
+
+    QVariantList fitting, others;
+    for (const Image &image : images) {
+        const double aspect = aspectOf(image.path);
+        const bool fits = screen > 0 && aspect > 0 && std::abs(std::log(aspect / screen)) < 0.15;
+        const QString name = image.kind == "version"
+                                 ? QFileInfo(image.path).dir().dirName() + "/" + QFileInfo(image.path).fileName()
+                                 : QFileInfo(image.path).fileName();
+        const QVariantMap entry{{"path", image.path}, {"name", name}, {"kind", image.kind},
+                                {"aspect", aspect > 0 ? aspect : 16.0 / 9}, {"fits", fits}};
+        (fits ? fitting : others).append(entry);
+    }
+    return fitting + others;
+}
+
+void Studio::assignToDisplay(const QString &monitor, const QString &path) {
+    if (!QFileInfo(path).isFile())
+        return;
+    // Per-display images belong to the theme on the desktop, which can differ
+    // from the one loaded in the window.
+    const auto desktop = m_library.load(m_library.currentSlug());
+    if (!desktop) {
+        setMessage(tr("No Omarchy theme is in use."));
+        return;
+    }
+    const Library::ExportOptions options{m_settings.exportFormat(), m_settings.exportQuality(),
+                                         m_settings.extraExportFolder(desktop->slug)};
+    const Target shape = shapeOfMonitor(monitor);
+    QString error;
+
+    if (shape.key() == m_target.key()) {
+        // A background the desktop's theme already cycles through is set as
+        // it is; anything else is kept into that theme first.
+        QString background;
+        for (const QString &existing : desktop->backgrounds)
+            if (existing == path)
+                background = path;
+        if (background.isEmpty()) {
+            QString name = QFileInfo(path).completeBaseName();
+            name.remove(QRegularExpression("^\\d+-"));
+            if (path.contains("/candidate-"))
+                name.clear();   // the batch's scene names it
+            const auto kept = m_store.keep(path, *desktop, shape, name, &error, options);
+            if (!kept) {
+                setMessage(error);
+                return;
+            }
+            background = kept->exported;
+        }
+        m_preview.setBackground(background);
+        setMessage(tr("%1 is now the background.").arg(QFileInfo(background).fileName()));
+    } else {
+        const QString linkPath = m_options.preview.currentBackgroundLink.isEmpty()
+                                     ? QDir::homePath() + "/.local/state/omarchy/current/background"
+                                     : m_options.preview.currentBackgroundLink;
+        const QString current = QFileInfo(linkPath).symLinkTarget();
+        if (current.isEmpty()) {
+            setMessage(tr("Set a background on %1 first.").arg(m_target.monitors.join(", ")));
+            return;
+        }
+        if (!perScreen())
+            setMessage(tr("Saved, but your desktop shows one image on every screen. The Oma Easel plugin's renderer shows each its own."));
+        const auto kept = m_store.keep(path, *desktop, shape, {}, &error, options, current);
+        if (!kept) {
+            setMessage(error);
+            return;
+        }
+        m_preview.rescanVersions();
+        if (perScreen())
+            setMessage(tr("%1 now shows %2, as the %3 version of %4.")
+                           .arg(monitor, QFileInfo(path).fileName(), shape.ratio(), QFileInfo(current).fileName()));
+    }
+    if (desktop->slug == m_theme.slug)
+        reloadBackgrounds();
+    reloadHistory();
+    // The renderer swaps images a moment after it's told.
+    QTimer::singleShot(600, this, &Studio::refreshMonitors);
 }
 
 void Studio::setScene(const QString &scene) {
