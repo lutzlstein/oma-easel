@@ -43,6 +43,7 @@ Candidates wait in `~/.cache/oma-easel/<theme>/<batch>/` until kept.
 | D | Discard the selected candidate |
 | V | Vary: say what to change, or Esc for fresh takes in the same style |
 | O | Companion: the same scene composed again for your other screens |
+| M | Displays: choose the image each monitor shows |
 | R | Use the selected candidate as a reference |
 | P | Preview on an empty workspace, with a prompt to keep it or go back |
 | H | History: every earlier batch for the theme, with its prompt |
@@ -96,6 +97,8 @@ The largest monitor's shape is the main one: its candidates are kept as backgrou
 ```
 
 Oma Easel pairs a version with the background its companion batch was made from, or with the one main image kept from the same batch. Otherwise it asks which background it belongs to. Keeping a newer version replaces the old one, and removing a background takes its versions with it.
+
+**Displays** (`M`, or the displays button) shows your monitors as they sit on the desk, each with the image it shows now. Click a monitor, then any image in the theme's library: its backgrounds, their versions, or any candidate in the history. Images that fit the monitor's shape come first; others are cropped to fit. On the main display the image becomes the background (kept into the theme first if it isn't one of its backgrounds yet). On another display it becomes the current background's version for that display's shape, replacing any version it had. Images go into the theme on your desktop, even when the window has another theme loaded.
 
 **Companion** (`O`) takes one candidate and paints the same scene again for each of your other shapes, using it as the reference. That gives a matched pair, where two separate grids from one prompt would drift apart.
 

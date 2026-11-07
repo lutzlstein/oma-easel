@@ -59,6 +59,13 @@ class Studio : public QObject {
     // The batch on screen, grouped by shape: [{key, ratio, aspect, monitors, primary, indices}].
     Q_PROPERTY(QVariantList sections READ sections NOTIFY candidatesChanged)
     Q_PROPERTY(int enabledDisplays READ enabledDisplays NOTIFY displaysChanged)
+    // Each monitor, where it sits, and what it shows now:
+    // [{name, x, y, width, height, shape, ratio, aspect, primary, shown}].
+    Q_PROPERTY(QVariantList monitors READ monitors NOTIFY monitorsChanged)
+    // Whether the desktop can show a different image on each monitor.
+    Q_PROPERTY(bool perScreen READ perScreen NOTIFY monitorsChanged)
+    // The Omarchy theme in use, which per-display images are saved into.
+    Q_PROPERTY(QString desktopThemeName READ desktopThemeName NOTIFY monitorsChanged)
     // Generation still running, for every theme, so switching themes never
     // hides or stops it: [{theme, themeName, batch, scene, pending, total, seconds}].
     Q_PROPERTY(QVariantList activity READ activity NOTIFY activityChanged)
@@ -72,6 +79,7 @@ public:
         QString backend;                 // tests force one instead of detecting
         std::optional<Target> target;    // tests pass one instead of asking hyprctl
         QList<Target> shapes;            // or several, the first being the main shape
+        QList<Monitor> monitors;         // tests pass these too
     };
 
     explicit Studio(const Paths &paths, const Options &options, QObject *parent = nullptr);
@@ -110,6 +118,9 @@ public:
     QVariantList displays() const;
     QVariantList sections() const;
     int enabledDisplays() const { return enabledShapes().size(); }
+    QVariantList monitors() const;
+    bool perScreen() const { return !m_shown.isEmpty(); }
+    QString desktopThemeName() const;
     QVariantList activity() const;
     bool anyRunning() const;
 
@@ -138,6 +149,15 @@ public:
     // Saves a candidate made for another shape as `background`'s version.
     Q_INVOKABLE void keepVariant(int index, const QString &background);
     Q_INVOKABLE void toggleDisplay(const QString &key);
+    // Asks the desktop what each monitor shows.
+    Q_INVOKABLE void refreshMonitors();
+    // Every image in the loaded theme's library, best fits for `monitor`
+    // first: [{path, name, kind, aspect, fits}].
+    Q_INVOKABLE QVariantList imagesFor(const QString &monitor) const;
+    // Shows `path` on `monitor`. On a monitor of the main shape it becomes
+    // the background; on another it becomes the current background's
+    // version for that monitor's shape.
+    Q_INVOKABLE void assignToDisplay(const QString &monitor, const QString &path);
     Q_INVOKABLE void preview(int index);
     Q_INVOKABLE void endPreview();
     Q_INVOKABLE void removeBackground(const QString &path);
@@ -164,6 +184,7 @@ signals:
     void activityChanged();
     void selectCandidate(int index);
     void displaysChanged();
+    void monitorsChanged();
     // A candidate for another shape is being kept and which background it
     // belongs to isn't known; the window asks.
     void pairNeeded(int index);
@@ -220,6 +241,11 @@ private:
     Library m_store;
     Target m_target;          // the main shape, m_shapes.first()
     QList<Target> m_shapes;
+    QList<Monitor> m_monitors;
+    QHash<QString, QString> m_shown;
+    mutable QHash<QString, double> m_aspects;
+    double aspectOf(const QString &path) const;
+    Target shapeOfMonitor(const QString &name) const;
     ThemeInfo m_theme;
     QStringList m_references;
     QString m_scene;

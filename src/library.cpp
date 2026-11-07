@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QProcess>
@@ -211,8 +212,17 @@ std::optional<Library::Kept> Library::keep(const QString &candidate, const Theme
     if (QFileInfo::exists(kept.master) || QFileInfo::exists(kept.exported))
         return failWith("A background named " + base + " already exists.");
 
-    if (!QFile::copy(candidate, kept.master))
-        return failWith("Could not copy the candidate to " + kept.master);
+    // Any image can be kept, not only generated PNGs: others are converted
+    // so the master is always a lossless PNG.
+    if (QImageReader(candidate).format() == "png") {
+        if (!QFile::copy(candidate, kept.master))
+            return failWith("Could not copy the candidate to " + kept.master);
+    } else {
+        QProcess convert;
+        convert.start(m_magick, {candidate, "png:" + kept.master});
+        if (!convert.waitForFinished(120000) || convert.exitCode() != 0)
+            return failWith("Could not convert " + candidate + " to PNG.");
+    }
 
     QJsonObject sidecar = batch;
     sidecar.insert("theme", theme.slug);

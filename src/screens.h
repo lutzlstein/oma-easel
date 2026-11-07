@@ -9,6 +9,9 @@ struct Monitor {
     QString name;
     int width = 0;   // physical pixels, already swapped for rotated monitors
     int height = 0;
+    int x = 0;       // position in the desktop layout, in logical pixels
+    int y = 0;
+    double scale = 1;
 };
 
 // The size a new background is exported at: the widest landscape monitor's

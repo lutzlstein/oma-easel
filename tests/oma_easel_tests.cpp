@@ -553,6 +553,81 @@ private slots:
         QCOMPARE(lines(setLog).last(), background);
     }
 
+    // Any image in the library can go on any monitor: on the main one it
+    // becomes the background, on another the background's version.
+    void assignsImagesToDisplays()
+    {
+        if (QStandardPaths::findExecutable("magick").isEmpty())
+            QSKIP("ImageMagick is not installed.");
+        QTemporaryDir dir;
+        const Paths paths = Paths::underRoot(dir.path());
+        write(paths.stockThemes + "/nord/colors.toml", "accent = \"#81a1c1\"\n");
+        write(paths.currentThemeName, "nord\n");
+        QDir().mkpath(paths.stockThemes + "/nord/backgrounds");
+        QImage wide(240, 100, QImage::Format_RGB32), other(100, 100, QImage::Format_RGB32);
+        wide.fill(Qt::blue);
+        other.fill(Qt::yellow);
+        const QString background = paths.stockThemes + "/nord/backgrounds/1-fjord.png";
+        // A JPEG, so keeping it has to convert it to a PNG master.
+        const QString square = paths.stockThemes + "/nord/backgrounds/2-square.jpg";
+        QVERIFY(wide.save(background));
+        QVERIFY(other.save(square));
+        QVERIFY(QFile::link(background, dir.filePath("background")));
+
+        const QString setLog = dir.filePath("set.log"), shellLog = dir.filePath("shell.log");
+        auto script = [&](const QString &name, const QByteArray &body) {
+            write(dir.filePath(name), "#!/bin/sh\n" + body);
+            QVERIFY(QFile::setPermissions(dir.filePath(name), QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+        };
+        script("bg-set", "echo \"$1\" >> '" + setLog.toUtf8() + "'\n");
+        script("shell", "echo \"$*\" >> '" + shellLog.toUtf8() + "'\n"
+                        "[ \"$2\" = shown ] && printf 'DP-2\\tx\\nDP-3\\ty\\n'\nexit 0\n");
+
+        Studio::Options options;
+        options.detectBackends = false;
+        options.monitors = {{"DP-3", 120, 50, 0, 0, 1}, {"DP-2", 50, 90, 120, 0, 1}};
+        options.shapes = Screens::shapes(options.monitors);
+        options.preview = {dir.filePath("hyprctl"), dir.filePath("bg-set"), dir.filePath("terminal"),
+                           dir.filePath("background"), dir.filePath("shell")};
+        Studio studio(paths, options);
+        studio.refreshMonitors();
+        QVERIFY(studio.perScreen());
+        QCOMPARE(studio.monitors().size(), 2);
+        QVERIFY(studio.monitors().at(0).toMap().value("primary").toBool());
+
+        // Library images for the portrait monitor: neither fits it.
+        const QVariantList images = studio.imagesFor("DP-2");
+        QCOMPARE(images.size(), 2);
+        QVERIFY(!images.first().toMap().value("fits").toBool());
+        QVERIFY(studio.imagesFor("DP-3").first().toMap().value("fits").toBool());
+
+        // On the portrait monitor, the square image becomes the current
+        // background's 9:16 version, cropped to shape.
+        studio.assignToDisplay("DP-2", square);
+        const QString version = paths.userBackgrounds + "/nord/9x16/1-fjord.webp";
+        QVERIFY(QFileInfo::exists(version));
+        QCOMPARE(QImage(version).size(), QSize(50, 90));
+        QVERIFY(QFile(shellLog).open(QIODevice::ReadOnly));
+        QTRY_VERIFY([&] { QFile f(shellLog); f.open(QIODevice::ReadOnly); return f.readAll().contains("rescanVersions"); }());
+        // The version is now in the library too.
+        bool listed = false;
+        for (const QVariant &image : studio.imagesFor("DP-2"))
+            listed = listed || (image.toMap().value("path").toString() == version && image.toMap().value("fits").toBool());
+        QVERIFY(listed);
+
+        // On the main monitor, a theme background is set as it is; a version
+        // is kept as a new background first.
+        studio.assignToDisplay("DP-3", background);
+        studio.assignToDisplay("DP-3", version);
+        auto lines = [](const QString &path) {
+            QFile file(path);
+            return file.open(QIODevice::ReadOnly) ? QString::fromUtf8(file.readAll()).trimmed().split('\n') : QStringList();
+        };
+        QTRY_COMPARE(lines(setLog).size(), 2);
+        QCOMPARE(lines(setLog).at(0), background);
+        QCOMPARE(lines(setLog).at(1), paths.userBackgrounds + "/nord/3-fjord.webp");
+    }
+
     void historyRemembersBatchesAndPrompts()
     {
         QTemporaryDir dir;

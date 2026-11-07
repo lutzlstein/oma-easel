@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QFileSystemWatcher>
+#include <QHash>
 #include <QObject>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -34,6 +35,8 @@ public:
                const QString &paired = {});
     // Whether the desktop's background renderer shows versions per screen.
     bool perScreen() const;
+    // What each screen shows, by name; empty without a per-screen renderer.
+    QHash<QString, QString> shown() const;
     // Asks the renderer to look for new versions, after one is kept.
     void rescanVersions() const;
     void setBackground(const QString &image);

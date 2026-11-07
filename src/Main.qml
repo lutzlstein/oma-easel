@@ -34,7 +34,7 @@ ApplicationWindow {
     property bool quitting: false
     function quitNow() { quitting = true; Qt.quit() }
     readonly property bool typing: sceneField.activeFocus || varyField.activeFocus || (win.activeFocusItem instanceof TextInput)
-    readonly property bool overlayOpen: help.visible || quitDialog.visible || varyCard.visible || removeCard.visible || pairCard.visible
+    readonly property bool overlayOpen: help.visible || quitDialog.visible || varyCard.visible || removeCard.visible || pairCard.visible || displaysCard.visible
                                         || runCard.visible || stopCard.visible
 
     function clampSelection() {
@@ -88,6 +88,7 @@ ApplicationWindow {
         if (screenshotOpen === "settings") settingsDrawer.open()
         else if (screenshotOpen === "history") history.open()
         else if (screenshotOpen === "help") help.open()
+        else if (screenshotOpen === "displays") displaysCard.open()
         else if (screenshotOpen === "batch" && studio.history.length > 0) studio.openBatch(studio.history[0].batch)
     }
 
@@ -125,6 +126,7 @@ ApplicationWindow {
     Shortcut { sequence: "Right"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.move(1) }
     Shortcut { sequence: "Up"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.move(-grid.columnsAt(win.selected)) }
     Shortcut { sequence: "Down"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: win.move(grid.columnsAt(win.selected)) }
+    Shortcut { sequence: "M"; enabled: (win.keysLive || displaysCard.visible) && studio.monitors.length > 1; context: Qt.ApplicationShortcut; onActivated: displaysCard.visible ? displaysCard.close() : displaysCard.open() }
     Shortcut { sequence: "O"; enabled: win.keysLive; context: Qt.ApplicationShortcut; onActivated: if (win.canUse(win.selected)) studio.companion(win.selected) }
     Shortcut { sequences: ["/", "Ctrl+L"]; enabled: !win.overlayOpen; context: Qt.ApplicationShortcut; onActivated: sceneField.forceActiveFocus() }
     Shortcut {
@@ -134,6 +136,7 @@ ApplicationWindow {
             else if (quitDialog.visible) quitDialog.close()
             else if (removeCard.visible) removeCard.close()
             else if (pairCard.visible) pairCard.close()
+            else if (displaysCard.visible) displaysCard.close()
             else if (history.visible) history.close()
             else if (settingsDrawer.visible) settingsDrawer.close()
             else if (studio.busy) win.requestStop()
@@ -256,6 +259,12 @@ ApplicationWindow {
                         onClicked: modelData.theme === studio.themeSlug ? studio.openBatch(modelData.batch)
                                                                       : studio.loadTheme(modelData.theme)
                     }
+                }
+                OButton {
+                    visible: studio.monitors.length > 1
+                    keyHint: "m"
+                    text: win.narrow ? "" : qsTr("displays")
+                    onClicked: displaysCard.open()
                 }
                 OButton {
                     keyHint: "h"
@@ -979,6 +988,131 @@ ApplicationWindow {
         }
     }
 
+    // Displays: the monitors as they sit on the desk, each showing what it
+    // shows now. Pick a monitor, then any image in the library for it.
+    Card {
+        id: displaysCard
+        property string monitor
+        width: Math.min(win.width - 24 * s.spacing, 1100 * s.spacing)
+        height: Math.min(win.height - 24 * s.spacing, 820 * s.spacing)
+        onOpened: {
+            studio.refreshMonitors()
+            if (!monitor || !studio.monitors.some(m => m.name === monitor)) {
+                const main = studio.monitors.find(m => m.primary) || studio.monitors[0]
+                monitor = main ? main.name : ""
+            }
+        }
+        onClosed: grid.forceActiveFocus()
+        readonly property var current: studio.monitors.find(m => m.name === monitor) || ({})
+        // Bumped after an assignment, which can add images, to reread them.
+        property int revision: 0
+        readonly property var images: visible && monitor && revision >= 0 ? studio.imagesFor(monitor) : []
+        Connections {
+            target: studio
+            function onMonitorsChanged() { displaysCard.revision++ }
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 10 * s.spacing
+            RowLayout {
+                Layout.fillWidth: true
+                OText { Layout.fillWidth: true; text: qsTr("Displays · %1").arg(studio.desktopThemeName); size: 1.167; elide: Text.ElideRight }
+                KeyHint { key: "esc"; label: qsTr("close"); visible: !win.narrow }
+            }
+            OText {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                muted: true
+                text: studio.perScreen
+                      ? qsTr("Click a monitor, then an image for it. The main display sets the background; the others get its version for their shape.")
+                      : qsTr("Your desktop shows one image on every screen. Add the Oma Easel plugin for its per-screen renderer; until then only the main display changes.")
+            }
+
+            // The desk: monitors at their positions, scaled to fit.
+            Item {
+                id: desk
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(200 * s.spacing, displaysCard.height * 0.3)
+                readonly property var bounds: {
+                    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+                    for (const m of studio.monitors) {
+                        x0 = Math.min(x0, m.x); y0 = Math.min(y0, m.y)
+                        x1 = Math.max(x1, m.x + m.width); y1 = Math.max(y1, m.y + m.height)
+                    }
+                    return { x: x0, y: y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0) }
+                }
+                readonly property real zoom: Math.min(width / bounds.w, height / bounds.h)
+                readonly property real offsetX: (width - bounds.w * zoom) / 2
+                Repeater {
+                    model: studio.monitors
+                    Rectangle {
+                        id: screenTile
+                        required property var modelData
+                        readonly property bool chosen: modelData.name === displaysCard.monitor
+                        x: desk.offsetX + (modelData.x - desk.bounds.x) * desk.zoom + 3
+                        y: (modelData.y - desk.bounds.y) * desk.zoom + 3
+                        width: modelData.width * desk.zoom - 6
+                        height: modelData.height * desk.zoom - 6
+                        radius: theme.radius
+                        color: Qt.alpha(s.controlColor, s.normalFill)
+                        border.width: chosen ? 2 : 1
+                        border.color: chosen ? s.border : Qt.alpha(s.controlColor, s.normalBorderAlpha)
+                        clip: true
+                        Image {
+                            anchors.fill: parent
+                            anchors.margins: parent.border.width
+                            source: modelData.shown ? "file://" + modelData.shown : ""
+                            sourceSize.height: 300
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            cache: false
+                        }
+                        Badge {
+                            anchors.left: parent.left; anchors.bottom: parent.bottom; anchors.margins: 6
+                            text: modelData.name + " · " + modelData.ratio + (modelData.primary ? qsTr(" · main") : "")
+                        }
+                        TapHandler { onTapped: displaysCard.monitor = screenTile.modelData.name }
+                        HoverHandler { cursorShape: Qt.PointingHandCursor }
+                    }
+                }
+            }
+
+            OText {
+                Layout.fillWidth: true
+                elide: Text.ElideRight
+                text: displaysCard.current.name
+                      ? qsTr("Images for %1 (%2) · fitting ones first, others are cropped to fit").arg(displaysCard.current.name).arg(displaysCard.current.ratio)
+                      : ""
+            }
+            ScrollView {
+                id: libraryScroll
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                contentWidth: availableWidth
+                Flow {
+                    width: libraryScroll.availableWidth
+                    spacing: win.gap
+                    Repeater {
+                        model: displaysCard.images
+                        Thumbnail {
+                            required property var modelData
+                            height: (win.compact ? 90 : 120) * s.spacing
+                            width: height * Math.min(3, Math.max(0.4, modelData.aspect))
+                            path: modelData.path
+                            chosen: displaysCard.current.shown === modelData.path
+                            dimmed: !modelData.fits
+                            caption: width < 110 * s.spacing ? "" : [modelData.kind === "version" ? qsTr("version") : modelData.kind === "candidate" ? qsTr("candidate") : "",
+                                      modelData.fits ? "" : qsTr("cropped")].filter(x => x).join(" · ")
+                            onClicked: studio.assignToDisplay(displaysCard.monitor, modelData.path)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Card {
         id: help
         width: Math.min(win.width - 24 * s.spacing, 640 * s.spacing)
@@ -997,6 +1131,7 @@ ApplicationWindow {
                     ["d", qsTr("Discard the selected candidate")],
                     ["v", qsTr("Vary: say what to change, or esc for fresh takes")],
                     ["o", qsTr("Companion: the same scene composed for your other screens")],
+                    ["m", qsTr("Displays: choose the image each monitor shows")],
                     ["r", qsTr("Use the selected candidate as a reference")],
                     ["p", qsTr("Preview on an empty workspace")],
                     ["h", qsTr("History of earlier batches")],
